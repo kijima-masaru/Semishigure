@@ -17,10 +17,15 @@ Docker は不要です。検証用の PBX を自分で立てる必要もあり�
 GitHub の Releases から `Semishigure-<版>-setup.exe` をダウンロードして実行します。Python の別途インストールは不要です（3.12 を同梱）。
 
 - スタートメニューの「Semishigure」でアプリ窓が開きます（Edge WebView2 を使用。無い場合は既定のブラウザで開きます）。窓を閉じると進行中のランを止めて終了します
-- 「Semishigure (コンソール)」はサーバのログを見ながら使う版で、既定のブラウザで画面を開きます
-- コマンド `semishigure`（CLI）も同梱されます。インストール先の `bin` フォルダを PATH に足すか、フルパスで実行してください
+- コマンド `semishigure`（CLI）と `semishigure-desktop`（コンソール版: サーバのログを表示しながら既定ブラウザで画面を開く）も同梱されます。インストール先の `bin` フォルダを PATH に足すか、フルパスで実行してください
 - データは `C:\Users\<名前>\.semishigure\` に置かれます（プロファイル、シナリオ、暗号化ストア、結果、`desktop.log`）
 - 待ち受けは 127.0.0.1 だけです。他の PC からは使えません
+
+起動しないときは次を見てください。
+
+1. `C:\Users\<名前>\.semishigure\desktop.log`: サーバの起動と、アプリ窓が開けなかった理由が記録されます。起動時の例外はダイアログでも表示します
+2. `%APPDATA%\Semishigure.launch.pyw.log`（`C:\Users\<名前>\AppData\Roaming\`）: 起動スクリプト自体が落ちたときの記録です
+3. どちらも無いときは、コマンド プロンプトで `"<インストール先>\bin\semishigure-desktop.exe"` を実行すると画面にエラーが出ます。インストール先は通常 `C:\Users\<名前>\AppData\Local\Programs\Semishigure`（全ユーザー向けに入れた場合は `C:\Program Files\Semishigure`）です
 
 負荷を掛ける PBX へは、Windows から SIP（UDP）と RTP が届く必要があります。Windows Defender ファイアウォールの許可を求められたら「プライベート ネットワーク」で許可してください。RTP の 20 ms 送出は Python 3.12 の高分解能タイマーで動きますが、大きな同時数（30 本以上）を掛ける場合は WSL2 か Linux での実行を推奨します。
 
