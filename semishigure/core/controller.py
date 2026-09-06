@@ -204,6 +204,9 @@ class LoadController:
             await asyncio.sleep(TICK)
 
     def _tick(self) -> None:
+        if self.engine.is_shutdown:
+            self.running = False
+            return
         now = time.monotonic()
         dt = now - self._last_tick
         self._last_tick = now

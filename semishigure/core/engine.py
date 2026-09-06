@@ -11,7 +11,7 @@ import asyncio
 import logging
 import signal
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from semishigure.core.call import CallRecord, CallRole, CallState
@@ -41,8 +41,12 @@ class SipEngine:
         sip_trace: bool = False,
         on_event: EventCallback | None = None,
         register_expires: int = 300,
+        install_signal_handlers: bool = True,
     ):
         self.scenario = scenario
+        self.install_signal_handlers = install_signal_handlers
+        # Called on SIGINT/SIGTERM instead of shutdown() when set (Run stops the whole run)
+        self.signal_callback: Callable[[], Awaitable[None]] | None = None
         self.secrets = secrets or SecretStore()
         self.record_rx_dir = record_rx_dir
         self.sip_trace = sip_trace
@@ -62,6 +66,7 @@ class SipEngine:
         self._shutdown_done = False
         self._shutdown_lock = asyncio.Lock()
         self._caller_password = ""
+        self.shutdown_hooks: list = []  # awaitables run first on shutdown (plugins' post_run etc.)
 
     # -- lifecycle ----------------------------------------------------------------
 
@@ -127,8 +132,12 @@ class SipEngine:
         log.info("loaded %s: %.1fs", resolved, src.duration_s)
         return src
 
+    @property
+    def is_shutdown(self) -> bool:
+        return self._shutdown_done
+
     def _install_signal_handlers(self) -> None:
-        if sys.platform == "win32":
+        if sys.platform == "win32" or not self.install_signal_handlers:
             return
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -139,7 +148,10 @@ class SipEngine:
 
     async def _on_signal(self, sig: signal.Signals) -> None:
         log.warning("received %s: hanging up all calls and unregistering", sig.name)
-        await self.shutdown()
+        if self.signal_callback is not None:
+            await self.signal_callback()
+        else:
+            await self.shutdown()
 
     async def shutdown(self) -> None:
         async with self._shutdown_lock:
@@ -150,6 +162,11 @@ class SipEngine:
                 return
             log.info("shutdown: %d outbound call(s), %d inbound call(s)", len(self.active_calls), len(self.answerer.active_calls) if self.answerer else 0)
             await asyncio.gather(*(c.hangup("shutdown") for c in self.active_calls), return_exceptions=True)
+            for hook in list(self.shutdown_hooks):
+                try:
+                    await asyncio.wait_for(hook(), 30)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("shutdown hook failed: %s", exc)
             if self.answerer is not None:
                 await self.answerer.stop()
             for ep in (self.caller_endpoint, self.answerer_endpoint):
@@ -170,6 +187,7 @@ class SipEngine:
         sc = self.scenario
         assert self.caller_endpoint is not None and self.media_engine is not None
         record = CallRecord(role=CallRole.CALLER, local_user=sc.caller.from_number, remote_user=destination or sc.caller.destination, on_event=self.on_event)
+        record.headers = list(headers if headers is not None else sc.caller.headers)
         record_path = None
         if self.record_rx_dir is not None:
             record_path = self.record_rx_dir / f"rx_caller_{record.id}.wav"

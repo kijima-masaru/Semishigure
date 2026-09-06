@@ -220,7 +220,11 @@ async def _cmd_load(args: argparse.Namespace) -> int:
         if store is not None:
             store.close()
     summ = run.summary()
-    print(json.dumps(summ, indent=2, ensure_ascii=False))
+    print(json.dumps({k: v for k, v in summ.items() if k != "plugin_rows"}, indent=2, ensure_ascii=False))
+    if summ.get("plugin_rows"):
+        print("=== plugin rows ===")
+        for label, value in summ["plugin_rows"]:
+            print(f"  {label}: {value}")
     if args.report:
         Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False))
         print(f"report written to {args.report}")
@@ -284,6 +288,16 @@ async def _pbx_test(profile: PbxProfile) -> int:
         return 1
     finally:
         await adapter.close()
+
+
+def _cmd_plugins(args: argparse.Namespace) -> int:
+    from semishigure.plugins.registry import describe_builtin
+
+    for d in describe_builtin():
+        print(f"{d['name']:16} {d.get('description') or d.get('error')}")
+        print(f"{'':16} {d['class']}")
+    print("\nexternal: plugins:\n  myname:\n    module: package.module:ClassName")
+    return 0
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
@@ -374,6 +388,9 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--scenarios", default="examples", help="directory with scenario YAML files")
     sv.add_argument("--no-store", action="store_true")
     sv.set_defaults(func=_cmd_serve)
+
+    pl = sub.add_parser("plugins", help="list built-in plugins")
+    pl.set_defaults(func=_cmd_plugins)
 
     px = sub.add_parser("pbx", help="PBX profiles (connection, monitoring)")
     psub = px.add_subparsers(dest="pbx_cmd", required=True)

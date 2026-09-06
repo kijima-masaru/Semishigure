@@ -56,6 +56,7 @@ class CallRecord:
     auth_rounds: int = 0
     media: MediaStats | None = None
     timeline: list[tuple[float, str]] = field(default_factory=list)
+    headers: list[tuple[str, str]] = field(default_factory=list)  # custom INVITE headers (caller side)
     on_event: Callable[[CallRecord, str], None] | None = None
 
     # -- transitions ------------------------------------------------------------
