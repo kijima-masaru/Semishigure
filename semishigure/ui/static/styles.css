@@ -318,7 +318,16 @@ dialog .actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 .guide .intro { color: var(--muted); font-size: var(--fs-tbl); max-width: 68ch; margin-bottom: var(--sp-3); }
 .hint { background: var(--surface-2); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-tbl); }
 .hint h4 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
-.hint ol, .hint ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.hint ol, .hint ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.hint li, .hint p { line-height: 1.6; }
+.hint p { margin: 0 0 var(--sp-2); }
+.hint p:last-child { margin-bottom: 0; }
+.hint .req { display: grid; gap: var(--sp-3); margin: var(--sp-2) 0; padding: var(--sp-3); background: var(--panel); border-radius: var(--r-md); }
+.hint .req > div > b { display: block; margin-bottom: 4px; }
+.hint .req > div > p { margin-bottom: 6px; }
+.hint .req > div > p:last-child { margin-bottom: 0; }
+.hint .foot { color: var(--muted); }
+.hint ul + p, .hint ol + p { margin-top: var(--sp-2); }
 .hint code { font-size: 12px; }
 .result { margin-top: var(--sp-3); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-tbl); border: 1px solid var(--line); background: var(--panel); }
 .result.ok { border-left: 4px solid var(--ok); }
