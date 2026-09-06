@@ -20,7 +20,8 @@
   const hhmmss = (t) => { if (!t) return "–"; const d = new Date(t * 1000); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); };
   const ts = (t) => { if (!t) return "–"; const d = new Date(t * 1000); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); };
   const fmt = (v, digits) => (v === null || v === undefined || v === "" || (typeof v === "number" && isNaN(v))) ? "–" : (typeof v === "number" && digits !== undefined ? v.toFixed(digits) : v);
-  const n = (v) => (v === null || v === undefined) ? "–" : (typeof v === "number" ? v.toLocaleString("ja-JP") : v);
+  // thousands separators without Intl (the headless browser used in CI lacks locale data)
+  const n = (v) => (v === null || v === undefined) ? "–" : (typeof v === "number" ? String(v).replace(/^(-?\d+)/, (m) => m.replace(/\B(?=(\d{3})+(?!\d))/g, ",")) : v);
   const ago = (t) => { if (!t) return "–"; const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 60 ? s + " 秒前" : mmss(s) + " 前"; };
   const LEVEL_RE = /\[(EMERG|ALERT|CRIT|ERR|WARNING|NOTICE|INFO|DEBUG)\]|(ERROR|WARNING|NOTICE|VERBOSE|DEBUG)\[\d+\]/;
   const levelOf = (line) => { const m = LEVEL_RE.exec(line || ""); const l = m ? (m[1] || m[2]) : ""; return l === "ERROR" ? "ERR" : l; };
