@@ -322,11 +322,14 @@ dialog .actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 .hint li, .hint p { line-height: 1.6; }
 .hint p { margin: 0 0 var(--sp-2); }
 .hint p:last-child { margin-bottom: 0; }
-.hint .req { display: grid; gap: var(--sp-3); margin: var(--sp-2) 0; padding: var(--sp-3); background: var(--panel); border-radius: var(--r-md); }
-.hint .req > div > b { display: block; margin-bottom: 4px; }
-.hint .req > div > p { margin-bottom: 6px; }
-.hint .req > div > p:last-child { margin-bottom: 0; }
-.hint .foot { color: var(--muted); }
+/* hint accordion: one closed row per topic, opened on demand */
+.hint .acc { margin-top: var(--sp-2); background: var(--panel); border-radius: var(--r-md); padding: 0 var(--sp-3); }
+.hint .acc details.fold { margin-top: 0; padding: 0; border-top: 1px solid var(--line); }
+.hint .acc details.fold:first-child { border-top: 0; }
+.hint .acc details.fold > summary { color: var(--text); font-size: var(--fs-tbl); font-weight: 500; min-height: 36px; padding: var(--sp-1) 0; }
+.hint .acc details.fold > summary:hover { color: var(--accent); }
+.hint .acc .fold-body { padding: 0 0 var(--sp-3) 14px; }
+.hint .acc .fold-body > p:last-child { margin-bottom: 0; }
 .hint ul + p, .hint ol + p { margin-top: var(--sp-2); }
 .hint code { font-size: 12px; }
 .result { margin-top: var(--sp-3); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4); font-size: var(--fs-tbl); border: 1px solid var(--line); background: var(--panel); }
