@@ -144,18 +144,19 @@
         const r = run.value;
         if (r && !r.finished) {
           const regs = Object.values(r.registrations || {}), okc = regs.filter((x) => x.state === "registered").length;
-          const pending = regs.some((x) => x.state === "registering"), failed = regs.some((x) => x.state === "failed");
-          const m = r.monitor, mon = !m ? "監視なし" : m.error ? "監視エラー" : "監視 OK";
+          const pending = regs.some((x) => x.state === "registering"), failed = regs.filter((x) => x.state === "failed").length;
+          const m = r.monitor, monBad = !!(m && m.error), mon = !m ? "監視なし" : monBad ? "監視エラー" : "監視 OK";
           const sip = regs.length ? `SIP 登録 ${okc}/${regs.length}` : "SIP 登録なし";
-          const title = m && m.error ? String(m.error) : "";
-          // 接続しています…: still registering / 接続済み: everything up / 一部に問題: a registration failed or the monitor errors
-          if (pending && !failed && !(m && m.error)) return { cls: "warn", text: `PBX ${r.pbx.host} に接続しています… · ${sip}`, title };
-          const bad = (regs.length && okc < regs.length) || (m && m.error);
-          return { cls: bad ? "warn" : "on", text: `PBX ${r.pbx.host} ${bad ? "一部に問題" : "接続済み"} · ${sip} · ${mon}`, title };
+          const title = monBad ? String(m.error) : "";
+          // red: something could not connect (a registration failed, or the monitor cannot reach the PBX)
+          if (failed || monBad) return { cls: "bad", text: `PBX ${r.pbx.host} ${okc ? "一部接続できません" : "接続できません"} · ${sip} · ${mon}`, title };
+          // yellow: still connecting
+          if (pending) return { cls: "warn", text: `PBX ${r.pbx.host} に接続しています… · ${sip}`, title };
+          return { cls: "on", text: `PBX ${r.pbx.host} 接続済み · ${sip} · ${mon}`, title };
         }
         if (precheckRunning.value) return { cls: "warn", text: "PBX に接続して事前チェック中", title: "" };
         const pc = precheckState.value && precheckState.value.result;
-        if (pc) { const ng = (pc.items || []).filter((i) => !i.ok).length, at = precheckState.value.finished_at ? hhmmss(precheckState.value.finished_at) : ""; return { cls: pc.ok ? "on" : "warn", text: (pc.ok ? "PBX 接続テスト 合格" : `PBX 接続テスト NG ${ng} 件`) + (precheckState.value.scenario ? `（${precheckState.value.scenario}）` : "") + (at ? " " + at : ""), title: pc.ok ? "" : (pc.items || []).filter((i) => !i.ok).map((i) => i.name + ": " + (i.detail || "")).join("\n") }; }
+        if (pc) { const ng = (pc.items || []).filter((i) => !i.ok).length, at = precheckState.value.finished_at ? hhmmss(precheckState.value.finished_at) : ""; return { cls: pc.ok ? "on" : "bad", text: (pc.ok ? "PBX 接続テスト 合格" : `PBX 接続テスト NG ${ng} 件`) + (precheckState.value.scenario ? `（${precheckState.value.scenario}）` : "") + (at ? " " + at : ""), title: pc.ok ? "" : (pc.items || []).filter((i) => !i.ok).map((i) => i.name + ": " + (i.detail || "")).join("\n") }; }
         return { cls: "", text: "PBX 未接続 — 実行タブで事前チェックかランを始めると接続します", title: "" };
       });
       const staleFor = computed(() => { nowTick.value; return mmss((Date.now() - lastAt.value) / 1000); });
