@@ -18,6 +18,8 @@ from semishigure.core.engine import SipEngine
 from semishigure.core.run import ProdConfirmationRequired, Run
 from semishigure.core.store import RunStore
 from semishigure.media.wav import synth_speech_like, write_wav
+from semishigure.pbx.adapter import make_adapter
+from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
 from semishigure.scenario.model import load_scenario
 from semishigure.secrets import SecretError, SecretStore
 
@@ -158,7 +160,12 @@ async def _cmd_load(args: argparse.Namespace) -> int:
             record_rx_dir=record_dir,
             sip_trace=args.sip_trace,
             on_event=lambda kind, ev: log.info("%s: %s", kind, ev.get("message", ev)),
+            profile=ProfileStore().get(args.pbx_profile) if args.pbx_profile else None,
+            monitor_enabled=not args.no_monitor,
         )
+        if args.pbx_profile and run.profile is None:
+            print(f"error: PBX profile {args.pbx_profile!r} not found in {ProfileStore().path}", file=sys.stderr)
+            return 2
     except ProdConfirmationRequired as exc:
         print(f"error: {exc} (pass --confirm-prod)", file=sys.stderr)
         return 2
@@ -188,6 +195,9 @@ async def _cmd_load(args: argparse.Namespace) -> int:
             st = run.controller.state()
             s = run.stats.summary()
             line = f"t={s['elapsed_s']:6.1f}s target={st['target']:3d} est={st['established']:3d} pend={st['pending']:2d} started={s['calls_started']} failed={s['calls_failed']} cps={s['cps']} p95(200)={s['invite_to_200_ms']['p95']} rtp_late_max={s['rtp']['late_max_ms']}ms"
+            if run.monitor is not None and run.monitor.state.last:
+                m = run.monitor.state.last
+                line += f" | pbx ch={m.get('channels')} cpu={m.get('cpu')}% nlwp={m.get('nlwp')}"
             if st["backoff_reason"]:
                 line += f"  BACKOFF: {st['backoff_reason']}"
             if line != last:
@@ -215,6 +225,65 @@ async def _cmd_load(args: argparse.Namespace) -> int:
         Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False))
         print(f"report written to {args.report}")
     return exit_code
+
+
+async def _cmd_pbx(args: argparse.Namespace) -> int:
+    store = ProfileStore()
+    if args.pbx_cmd == "list":
+        profiles = store.load_all()
+        if not profiles:
+            print(f"no profiles in {store.path} (see examples/pbx_profiles.example.yaml)")
+        for p in profiles:
+            print(f"{p.name:16} {p.type:10} {p.host}:{p.sip_port} domain={p.domain} env={p.environment} executor={p.executor}" + (f" ssh={p.ssh_user}@{p.ssh_host or p.host}:{p.ssh_port}" if p.executor == "ssh" else ""))
+        return 0
+    if args.pbx_cmd == "init":
+        example = Path(__file__).resolve().parent.parent / "examples" / "pbx_profiles.example.yaml"
+        if store.path.exists() and not args.force:
+            print(f"{store.path} exists (use --force to overwrite)")
+            return 1
+        store.path.parent.mkdir(parents=True, exist_ok=True)
+        store.path.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"wrote {store.path}")
+        return 0
+    profile = store.get(args.name)
+    if profile is None:
+        print(f"error: profile {args.name!r} not found in {store.path}", file=sys.stderr)
+        return 2
+    if args.pbx_cmd == "show":
+        print(json.dumps(profile.public(), indent=2, ensure_ascii=False))
+        return 0
+    if args.pbx_cmd == "test":
+        return await _pbx_test(profile)
+    return 0
+
+
+async def _pbx_test(profile: PbxProfile) -> int:
+    t0 = time.monotonic()
+    adapter = make_adapter(profile, build_executor(profile))
+    try:
+        await adapter.connect()
+        print(f"connected via {profile.executor} in {(time.monotonic() - t0) * 1000:.0f} ms: {adapter.describe()}")
+        st = await adapter.status()
+        print(f"version: {st.version}")
+        print(f"uptime: {st.uptime}")
+        print(f"sessions: {st.sessions} (peak {st.sessions_peak}) max {st.sessions_max}  sps max {st.sps_max}")
+        print(f"channels: {await adapter.channels_count()}")
+        regs = await adapter.registrations() if hasattr(adapter, "registrations") else []
+        print(f"registrations: {', '.join(regs) if regs else '(none)'}")
+        pm = await adapter.process_metrics()
+        print(f"process: pid={pm.pid} cpu={pm.cpu_percent}% mem={pm.mem_percent}% threads={pm.threads} rss={pm.rss_kb}kB")
+        for t in pm.top_threads[:5]:
+            print(f"  tid {t['tid']:>7} cpu {t['cpu']:>5} {t['name']}")
+        tail = await adapter.log_tail(3)
+        print("log tail:")
+        for ln in tail:
+            print("  " + ln[:140])
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        print(f"FAILED: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        await adapter.close()
 
 
 def _cmd_serve(args: argparse.Namespace) -> int:
@@ -290,6 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
     ld.add_argument("--max-total", type=int)
     ld.add_argument("--confirm-prod", action="store_true")
     ld.add_argument("--pbx-host")
+    ld.add_argument("--pbx-profile", help="PBX profile name (overrides the scenario's pbx_profile)")
+    ld.add_argument("--no-monitor", action="store_true", help="do not connect to the PBX host for monitoring")
     ld.add_argument("--record-rx")
     ld.add_argument("--report")
     ld.add_argument("--no-store", action="store_true", help="do not save the run to SQLite")
@@ -303,6 +374,17 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--scenarios", default="examples", help="directory with scenario YAML files")
     sv.add_argument("--no-store", action="store_true")
     sv.set_defaults(func=_cmd_serve)
+
+    px = sub.add_parser("pbx", help="PBX profiles (connection, monitoring)")
+    psub = px.add_subparsers(dest="pbx_cmd", required=True)
+    psub.add_parser("list")
+    pi = psub.add_parser("init", help="write the example profiles file")
+    pi.add_argument("--force", action="store_true")
+    ps = psub.add_parser("show")
+    ps.add_argument("name")
+    pt = psub.add_parser("test", help="connect and read status / metrics / log")
+    pt.add_argument("name")
+    px.set_defaults(func=lambda a: asyncio.run(_cmd_pbx(a)))
 
     a = sub.add_parser("audio", help="audio helpers")
     asub = a.add_subparsers(dest="audio_cmd", required=True)

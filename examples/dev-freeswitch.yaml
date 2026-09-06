@@ -3,6 +3,9 @@
 # `semishigure secret set ext`.
 name: dev-freeswitch-basic
 description: caller 9100 -> ring group 8001 -> answerers 9001..9004, WAV both ways
+# PBX profile (~/.semishigure/pbx_profiles.yaml). When set, host/port/domain/environment
+# come from the profile and the PBX host is monitored during the run.
+pbx_profile: dev-local
 
 pbx:
   host: 127.0.0.1          # FreeSWITCH SIP address (SEMI_FS_SIP_IP)
@@ -49,3 +52,14 @@ load:
   presets:
     A: { target_concurrency: [5, 10, 20], ramp_rate: 0.5/s, call_duration: 180s }
     B: { target_concurrency: 10, ramp_rate: 10/s, call_duration: 180s }
+
+monitor:                      # PBX-side sampling (design §3.6); generic commands only
+  interval: 2s
+  commands:
+    - name: channels_count    # via event socket (api) - number parsed from the output
+      api: show channels count
+    - name: sofia_regs        # registered contacts on the internal profile
+      api: sofia status profile internal reg
+      parse: "regex:Total items returned: (\\d+)"
+    - name: load1             # 1-minute load average of the PBX host
+      cmd: cut -d' ' -f1 /proc/loadavg

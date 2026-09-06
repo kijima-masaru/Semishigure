@@ -78,7 +78,13 @@
             <div><label>Ramp (calls/s)</label><input type="number" step="0.1" v-model.number="form.ramp_rate"></div>
             <div><label>Call duration (s)</label><input type="number" v-model.number="form.call_duration"></div>
           </div>
-          <label v-if="selectedScenario && selectedScenario.pbx && selectedScenario.pbx.environment==='prod'" class="bad">
+          <label>PBX profile</label>
+          <select v-model="form.pbx_profile">
+            <option value="">(scenario: {{ selectedScenario && selectedScenario.pbx_profile ? selectedScenario.pbx_profile : 'none, use pbx: section' }})</option>
+            <option v-for="p in profiles" :value="p.name">{{ p.name }} ({{ p.executor }} {{ p.host }}, {{ p.environment }})</option>
+          </select>
+          <label><input type="checkbox" v-model="form.monitor"> PBX ホストを監視する（fs_cli / ps / ログ）</label>
+          <label v-if="activeEnv==='prod'" class="bad">
             <input type="checkbox" v-model="form.confirm_prod"> 本番環境（prod）に負荷を掛けることを確認しました
           </label>
           <label><input type="checkbox" v-model="form.ignore_register_failure"> REGISTER 失敗を無視して開始</label>
@@ -121,6 +127,22 @@
           <tr v-for="(r,u) in run.registrations"><td class="mono">{{ u }}</td><td :class="{bad: r.state!=='registered'}">{{ r.state }}</td><td>{{ r.active }}/{{ r.max_calls }}</td><td>{{ r.busy_rejects }}</td></tr>
         </table>
       </div>
+      <div class="panel" style="margin-top:14px">
+        <h2>PBX profiles <span style="font-weight:400;text-transform:none">({{ profilesPath }})</span></h2>
+        <table><tr><th>name</th><th>host</th><th>exec</th><th>env</th><th></th></tr>
+          <tr v-for="p in profiles"><td class="mono">{{ p.name }}</td><td>{{ p.host }}</td><td>{{ p.executor }}</td><td :class="{bad: p.environment==='prod'}">{{ p.environment }}</td><td><button @click="testProfile(p.name)" :disabled="busy">Test</button></td></tr>
+        </table>
+        <div v-if="profileTest" style="margin-top:8px;font-size:12px" :class="{bad: !profileTest.ok}">
+          <template v-if="profileTest.ok">
+            <b>{{ profileTest.name }}</b>: connected in {{ profileTest.connect_ms }} ms via {{ profileTest.adapter.executor.kind }}, ESL {{ profileTest.adapter.esl }}<br>
+            {{ profileTest.status.version }} · up {{ profileTest.status.uptime }}<br>
+            sessions {{ profileTest.status.sessions }} (peak {{ profileTest.status.sessions_peak }}) · max-sessions <b>{{ profileTest.status.sessions_max }}</b> · sessions-per-second <b>{{ profileTest.status.sps_max }}</b> · channels {{ profileTest.channels }}<br>
+            process pid {{ profileTest.process.pid }} cpu {{ profileTest.process.cpu }}% mem {{ profileTest.process.mem }}% threads {{ profileTest.process.threads }}<br>
+            registrations: {{ profileTest.registrations.join(', ') || '(none)' }}
+          </template>
+          <template v-else>{{ profileTest.name }}: {{ profileTest.error }}</template>
+        </div>
+      </div>
       <div class="panel" style="margin-top:14px" v-if="run">
         <h2>Events</h2>
         <div class="events"><div v-for="e in [...run.events].reverse()"><span class="mono">{{ e.t }}s</span> {{ e.message }}</div></div>
@@ -141,6 +163,40 @@
       <div class="panel" style="margin-top:14px" v-if="run">
         <h2>Concurrency (target / established / pending) · RTP late max</h2>
         <canvas ref="chart" width="1200" height="220"></canvas>
+      </div>
+      <div class="panel" style="margin-top:14px" v-if="run && run.monitor">
+        <h2>PBX host <span style="font-weight:400;text-transform:none" v-if="run.pbx_profile">· {{ run.pbx_profile.name }} ({{ run.pbx_profile.executor }}) · {{ mon.adapter && mon.adapter.esl }}</span></h2>
+        <div v-if="mon.error" class="err">{{ mon.error }}</div>
+        <template v-else>
+        <div class="tiles">
+          <div class="tile"><div class="k">show channels count</div><div class="v">{{ fmt(mon.last.channels) }}</div></div>
+          <div class="tile"><div class="k">freeswitch %CPU (interval / ps avg)</div><div class="v">{{ fmt(mon.last.cpu) }} <span style="font-size:13px;color:var(--muted)">/ {{ fmt(mon.last.cpu_avg) }}</span></div></div>
+          <div class="tile"><div class="k">%MEM / RSS MB</div><div class="v small">{{ fmt(mon.last.mem) }} / {{ mon.last.rss_kb ? (mon.last.rss_kb/1024).toFixed(0) : '-' }}</div></div>
+          <div class="tile"><div class="k">nlwp (threads)</div><div class="v">{{ fmt(mon.last.nlwp) }}</div></div>
+          <div class="tile" v-for="(v,k) in (mon.last.custom||{})"><div class="k">{{ k }}</div><div class="v small">{{ fmt(v) }}</div></div>
+          <div class="tile"><div class="k">ESL events</div><div class="v small">{{ Object.entries(mon.esl_events||{}).map(([k,v])=>k.replace('CHANNEL_','')+' '+v).join(' · ') || '-' }}</div></div>
+          <div class="tile"><div class="k">hangup causes</div><div class="v small">{{ Object.entries(mon.hangup_causes||{}).map(([k,v])=>k+' '+v).join(' · ') || '-' }}</div></div>
+          <div class="tile"><div class="k">log WARN / ERR / CRIT</div><div class="v small" :class="{bad: (mon.log_level_counts.ERR||0)+(mon.log_level_counts.CRIT||0)>0}">{{ mon.log_level_counts.WARNING||0 }} / {{ mon.log_level_counts.ERR||0 }} / {{ mon.log_level_counts.CRIT||0 }}</div></div>
+        </div>
+        <canvas ref="mchart" width="1200" height="180" style="height:180px;margin-top:10px"></canvas>
+        <div class="grid2" style="margin-top:10px">
+          <div>
+            <h2>threads by name (count / %CPU)</h2>
+            <table><tr><th>name</th><th>count</th><th>%CPU</th></tr>
+              <tr v-for="(v,k) in mon.threads_by_name"><td class="mono">{{ k }}</td><td>{{ v.count }}</td><td>{{ v.cpu }}</td></tr>
+            </table>
+          </div>
+          <div>
+            <h2>top threads</h2>
+            <table><tr><th>tid</th><th>%CPU</th><th>name</th></tr>
+              <tr v-for="t in mon.top_threads.slice(0,8)"><td class="mono">{{ t.tid }}</td><td>{{ t.cpu }}</td><td class="mono">{{ t.name }}</td></tr>
+            </table>
+          </div>
+        </div>
+        <h2 style="margin-top:10px">log tail ({{ mon.log_lines_total }} lines)</h2>
+        <div class="events mono" style="max-height:200px;font-size:11px"><div v-for="l in [...mon.log_tail].reverse()">{{ l }}</div></div>
+        <div v-if="mon.errors && mon.errors.length" class="err">{{ mon.errors.join(' / ') }}</div>
+        </template>
       </div>
       <div class="panel" style="margin-top:14px" v-if="run">
         <h2>Calls ({{ run.calls.length }})</h2>
@@ -166,7 +222,9 @@ const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
 createApp({
   setup() {
     const connected = ref(false), scenarios = ref([]), runs = ref([]), run = ref(null), error = ref(''), busy = ref(false);
-    const form = ref({ scenario: '', target: 1, max_concurrency: 50, ramp_rate: 0.5, call_duration: 180, confirm_prod: false, ignore_register_failure: false });
+    const form = ref({ scenario: '', pbx_profile: '', monitor: true, target: 1, max_concurrency: 50, ramp_rate: 0.5, call_duration: 180, confirm_prod: false, ignore_register_failure: false });
+    const profiles = ref([]), profilesPath = ref(''), profileTest = ref(null);
+    const mchart = ref(null);
     const rate = ref({ ramp_rate: 0.5, call_duration: 180 });
     const burstTarget = ref(10), scheduleText = ref('');
     const chart = ref(null);
@@ -175,6 +233,15 @@ createApp({
     const runActive = computed(() => run.value && !run.value.finished);
     const selectedScenario = computed(() => scenarios.value.find(s => s.file === form.value.scenario));
     const presets = computed(() => selectedScenario.value ? (selectedScenario.value.presets || []) : []);
+    const mon = computed(() => (run.value && run.value.monitor) ? run.value.monitor : { last: {}, log_level_counts: {}, top_threads: [], threads_by_name: {}, log_tail: [], series: [] });
+    const activeEnv = computed(() => {
+      const name = form.value.pbx_profile || (selectedScenario.value && selectedScenario.value.pbx_profile);
+      const p = profiles.value.find(x => x.name === name);
+      if (p) return p.environment;
+      return selectedScenario.value && selectedScenario.value.pbx ? selectedScenario.value.pbx.environment : '';
+    });
+    async function loadProfiles() { const r = await api('/api/pbx/profiles').catch(() => ({ profiles: [], path: '' })); profiles.value = r.profiles; profilesPath.value = r.path; }
+    async function testProfile(name) { busy.value = true; profileTest.value = null; try { profileTest.value = { name, ...(await api('/api/pbx/profiles/' + name + '/test', {})) }; } catch (e) {} finally { busy.value = false; } }
     const fmt = v => (v === null || v === undefined) ? '-' : v;
     const ts = t => t ? new Date(t * 1000).toLocaleString() : '-';
     async function api(path, body) {
@@ -212,8 +279,24 @@ createApp({
         run.value = s.run;
         if (run.value && !rateSynced) { rate.value = { ramp_rate: run.value.controller.ramp_rate, call_duration: run.value.controller.call_duration }; rateSynced = true; }
         if (wasActive && run.value && run.value.finished) loadRuns();
-        nextTick(draw);
+        nextTick(() => { draw(); drawMonitor(); });
       };
+    }
+    function drawMonitor() {
+      const c = mchart.value; if (!c || !run.value || !run.value.monitor || !run.value.monitor.series) return;
+      const ctx = c.getContext('2d'); const W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
+      const s = run.value.monitor.series.filter(p => p.channels !== null && p.channels !== undefined); if (s.length < 2) return;
+      const t0 = s[0].t, t1 = s[s.length - 1].t, span = Math.max(30, t1 - t0);
+      const maxC = Math.max(4, ...s.map(p => p.channels || 0)) * 1.1, maxP = Math.max(10, ...s.map(p => p.cpu || 0)) * 1.1, maxT = Math.max(10, ...s.map(p => p.nlwp || 0)) * 1.1;
+      const x = t => 40 + (t - t0) / span * (W - 60), y = (v, m) => H - 22 - v / m * (H - 34);
+      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.font = '11px sans-serif'; ctx.fillStyle = '#6b7280';
+      for (let i = 0; i <= 4; i++) { const v = maxC / 1.1 * i / 4; ctx.beginPath(); ctx.moveTo(40, y(v, maxC)); ctx.lineTo(W - 20, y(v, maxC)); ctx.stroke(); ctx.fillText(Math.round(v), 4, y(v, maxC) + 4); }
+      const line = (color, fn, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); s.forEach((p, i) => { const v = fn(p); i ? ctx.lineTo(x(p.t), v) : ctx.moveTo(x(p.t), v); }); ctx.stroke(); ctx.setLineDash([]); };
+      line('#0f766e', p => y(p.channels || 0, maxC));
+      line('#b91c1c', p => y(p.cpu || 0, maxP), [6, 4]);
+      line('#7c3aed', p => y(p.nlwp || 0, maxT), [2, 3]);
+      ctx.fillStyle = '#0f766e'; ctx.fillText('channels', 50, 12); ctx.fillStyle = '#b91c1c'; ctx.fillText('freeswitch %CPU (scale ' + Math.round(maxP / 1.1) + ')', 120, 12); ctx.fillStyle = '#7c3aed'; ctx.fillText('threads (scale ' + Math.round(maxT / 1.1) + ')', 300, 12);
+      ctx.fillStyle = '#6b7280'; ctx.fillText(t0 + 's', 40, H - 6); ctx.fillText(t1 + 's', W - 60, H - 6);
     }
     function draw() {
       const c = chart.value; if (!c || !run.value) return;
@@ -233,8 +316,8 @@ createApp({
       ctx.fillStyle = '#6b7280'; ctx.fillText(t0 + 's', 40, H - 6); ctx.fillText(t1 + 's', W - 60, H - 6);
       ctx.fillStyle = '#0f766e'; ctx.fillText('target (dashed)', 50, 12); ctx.fillStyle = '#15803d'; ctx.fillText('established', 150, 12); ctx.fillStyle = '#b45309'; ctx.fillText('est+pending', 230, 12); ctx.fillStyle = '#7c3aed'; ctx.fillText('RTP late max ms (right scale ' + Math.round(maxL / 1.1) + ')', 320, 12);
     }
-    onMounted(async () => { await loadScenarios(); await loadRuns(); connect(); });
-    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
+    onMounted(async () => { await loadScenarios(); await loadProfiles(); await loadRuns(); connect(); });
+    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, mchart, mon, activeEnv, profiles, profilesPath, profileTest, testProfile, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
   }
 }).mount('#app');
 </script>

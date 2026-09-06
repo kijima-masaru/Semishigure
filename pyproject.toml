@@ -14,6 +14,7 @@ dependencies = [
     "fastapi>=0.110",       # MIT
     "uvicorn>=0.29",        # BSD-3-Clause
     "websockets>=12.0",     # BSD-3-Clause
+    "asyncssh>=2.14",       # EPL-2.0 (used unmodified)
 ]
 
 [project.optional-dependencies]

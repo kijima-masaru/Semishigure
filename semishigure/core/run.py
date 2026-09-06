@@ -15,6 +15,9 @@ from semishigure.core.controller import ControllerConfig, LoadController, Schedu
 from semishigure.core.engine import SipEngine
 from semishigure.core.stats import RunStats
 from semishigure.core.store import RunStore
+from semishigure.pbx.adapter import PbxAdapter, make_adapter
+from semishigure.pbx.monitor import Monitor, commands_from_scenario
+from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
 from semishigure.scenario.model import Scenario
 from semishigure.secrets import SecretStore
 
@@ -25,6 +28,15 @@ ABSOLUTE_MAX_CONCURRENCY = 50
 
 class ProdConfirmationRequired(RuntimeError):
     pass
+
+
+def apply_profile(scenario: Scenario, profile: PbxProfile) -> None:
+    """The PBX profile is the source of truth for where the PBX is."""
+    scenario.pbx.host = profile.host
+    scenario.pbx.sip_port = profile.sip_port
+    if profile.domain:
+        scenario.pbx.domain = profile.domain
+    scenario.pbx.environment = profile.environment
 
 
 class Run:
@@ -44,8 +56,18 @@ class Run:
         record_rx_dir: Path | None = None,
         sip_trace: bool = False,
         on_event: Callable[[str, dict], None] | None = None,
+        profile: PbxProfile | None = None,
+        profile_store: ProfileStore | None = None,
+        monitor_enabled: bool = True,
     ):
         self.scenario = scenario
+        self.profile = profile or (profile_store or ProfileStore()).get(scenario.pbx_profile) if scenario.pbx_profile else profile
+        if self.profile is not None:
+            apply_profile(scenario, self.profile)
+        self.monitor_enabled = monitor_enabled and self.profile is not None
+        self.adapter: PbxAdapter | None = None
+        self.monitor: Monitor | None = None
+        self.monitor_error: str = ""
         self.name = name or f"{scenario.name}-{time.strftime('%Y%m%d-%H%M%S')}"
         self.store = store
         self.run_id: int | None = None
@@ -56,6 +78,8 @@ class Run:
         cap = min(max_concurrency, ABSOLUTE_MAX_CONCURRENCY)
         if scenario.pbx.environment.lower() == "prod":
             cap = min(cap, 20)
+        if self.profile is not None and self.profile.max_concurrency:
+            cap = min(cap, self.profile.max_concurrency)
         self.config = ControllerConfig(
             target=target if target is not None else scenario.load.target_concurrency,
             ramp_rate=ramp_rate if ramp_rate is not None else scenario.load.ramp_rate,
@@ -69,6 +93,7 @@ class Run:
         self._persisted_samples = 0
         self._persisted_events = 0
         self._persisted_calls = 0
+        self._persisted_monitor = 0
         self.finished = False
         self.started_at: float | None = None
 
@@ -88,6 +113,8 @@ class Run:
 
     async def start(self, ignore_register_failure: bool = False) -> None:
         self.started_at = time.time()
+        if self.monitor_enabled and self.profile is not None:
+            await self._start_monitor()
         await self.engine.start()
         if not all(self.engine.registration_results.values()) and not ignore_register_failure:
             failed = [u for u, ok in self.engine.registration_results.items() if not ok]
@@ -98,6 +125,28 @@ class Run:
             self._persist_task = asyncio.get_running_loop().create_task(self._persist_loop())
         self.controller.start()
 
+    async def _start_monitor(self) -> None:
+        assert self.profile is not None
+        try:
+            executor = build_executor(self.profile, self.engine.secrets)
+            self.adapter = make_adapter(self.profile, executor, self.engine.secrets)
+            await self.adapter.connect()
+            interval, commands = commands_from_scenario(self.scenario.monitor)
+            self.monitor = Monitor(self.adapter, interval=interval, commands=commands)
+            await self.monitor.start()
+            self.stats.event("monitor", f"monitor started via {executor.kind} executor ({self.adapter.describe().get('esl')})")
+        except Exception as exc:  # noqa: BLE001
+            self.monitor_error = str(exc)
+            self.stats.event("monitor", f"monitor unavailable: {exc}")
+            log.warning("monitor unavailable: %s", exc)
+            if self.adapter is not None:
+                try:
+                    await self.adapter.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            self.adapter = None
+            self.monitor = None
+
     async def stop(self) -> None:
         if self.finished:
             return
@@ -106,6 +155,14 @@ class Run:
         await asyncio.sleep(0.3)
         self.controller._reap_finished()
         await self.engine.shutdown()
+        if self.monitor is not None:
+            try:
+                await self.monitor.sample()  # final PBX-side point after hangup
+            except Exception:  # noqa: BLE001
+                pass
+            await self.monitor.stop()
+        if self.adapter is not None:
+            await self.adapter.close()
         if self._persist_task:
             self._persist_task.cancel()
             try:
@@ -128,6 +185,10 @@ class Run:
         samples = list(self.stats.series)[self._persisted_samples :]
         self.store.add_samples(self.run_id, samples)
         self._persisted_samples = len(self.stats.series)
+        if self.monitor is not None:
+            mon = [{"kind": "monitor", **{k: v for k, v in p.items() if k not in ("top_threads", "threads_by_name")}} for p in list(self.monitor.state.series)[self._persisted_monitor :]]
+            self.store.add_samples(self.run_id, [dict(m, t=round(m["t"] - self.stats.t0, 1)) for m in mon])
+            self._persisted_monitor = len(self.monitor.state.series)
         events = list(self.stats.events)
         new_events = events[self._persisted_events :] if len(events) >= self._persisted_events else events
         self.store.add_events(self.run_id, new_events)
@@ -148,6 +209,12 @@ class Run:
         s["scenario"] = self.scenario.name
         s["pbx"] = {"host": self.scenario.pbx.host, "domain": self.scenario.pbx.domain, "environment": self.scenario.pbx.environment}
         s["controller"] = self.controller.state()
+        s["pbx_profile"] = self.profile.name if self.profile else None
+        if self.monitor is not None:
+            m = self.monitor.snapshot(series_tail=0, log_tail=0)
+            s["monitor"] = {"samples": m["samples"], "last": m["last"], "threads_by_name": m["threads_by_name"], "log_level_counts": m["log_level_counts"], "esl_events": m["esl_events"], "hangup_causes": m["hangup_causes"], "errors": m["errors"]}
+        elif self.monitor_error:
+            s["monitor"] = {"error": self.monitor_error}
         return s
 
     def snapshot(self, series_tail: int = 900, calls_tail: int = 60) -> dict:
@@ -170,7 +237,18 @@ class Run:
             "calls": [self._call_row(r) for r in (active + recent_done)],
             "registrations": regs,
             "media": self.engine.media_engine.describe() if self.engine.media_engine else {},
+            "pbx_profile": self.profile.public() if self.profile else None,
+            "monitor": self._monitor_snapshot(series_tail),
         }
+
+    def _monitor_snapshot(self, series_tail: int) -> dict | None:
+        if self.monitor is None:
+            return {"error": self.monitor_error} if self.monitor_error else None
+        m = self.monitor.snapshot(series_tail=series_tail, log_tail=80)
+        t0 = self.stats.t0
+        for p in m["series"]:
+            p["t"] = round(p["t"] - t0, 1)
+        return m
 
     @staticmethod
     def _call_row(r: CallRecord) -> dict:

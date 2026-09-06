@@ -1,0 +1,37 @@
+# Copy to ~/.semishigure/pbx_profiles.yaml (or $SEMISHIGURE_HOME) and edit.
+# Secrets are references: SEMISHIGURE_SECRET_ESL=... or `semishigure secret set esl`.
+profiles:
+  - name: dev-local            # app runs on the PBX host (WSL2 / Linux)
+    type: freeswitch
+    host: 127.0.0.1            # SIP address of the internal profile
+    sip_port: 5060
+    domain: pbx.semishigure.test
+    rtp_port_start: 16384
+    rtp_port_end: 32768
+    environment: dev           # dev | staging | prod (prod: confirmation + cap 20)
+    executor: local
+    esl_host: 127.0.0.1
+    esl_port: 8021
+    esl_password_ref: secret:esl
+    fs_cli: fs_cli             # docker: "docker exec semishigure-fs fs_cli"
+    log_path: /var/log/freeswitch/freeswitch.log
+    process_name: freeswitch
+
+  - name: dev-ssh              # app runs elsewhere and reaches the PBX host over SSH (key auth only)
+    type: freeswitch
+    host: 192.168.1.10
+    sip_port: 5060
+    domain: pbx.semishigure.test
+    environment: dev
+    executor: ssh
+    ssh_host: 192.168.1.10
+    ssh_port: 22
+    ssh_user: semi
+    ssh_key: ~/.ssh/id_ed25519
+    ssh_key_passphrase_ref: ""          # secret:sshpass when the key has a passphrase
+    ssh_known_hosts: ~/.ssh/known_hosts # empty = ~/.ssh/known_hosts; ssh_strict_host_key: false to skip (dev only)
+    esl_host: 127.0.0.1                 # as seen from the PBX host; forwarded through the SSH connection
+    esl_port: 8021
+    esl_password_ref: secret:esl
+    fs_cli: fs_cli
+    log_path: /var/log/freeswitch/freeswitch.log

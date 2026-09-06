@@ -33,3 +33,14 @@
 | prod の扱い | 環境タグ `prod` は `confirm_prod` なしでは開始できず、同時数上限を 20 に固定する。絶対上限は 50 | 共有事項 6 節の制約 |
 | Vue の読み込み | CDN（jsdelivr）を第一にし、読めなければ同梱の `vue.global.prod.js`（MIT）に切り替える | PBX ホストや閉域網では CDN に届かない。同梱ファイルは npm の vue@3.4.38 を無改変で置いたもの |
 | ランの保存 | SQLite（`~/.semishigure/runs.sqlite3`）に runs / samples（1 秒） / calls / events を 5 秒ごとに追記 | 設計 3.6。異常終了しても途中までの時系列が残る |
+
+## 段階 3 で決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| API コマンドの経路 | ESL（自前の TCP クライアント）を第一にし、SSH 時はポートフォワードで 127.0.0.1:8021 に接続する。ESL に接続できないときだけ `fs_cli -x` に落とす | 設計 5 章の方針。fs_cli はパスワードがコマンドラインに出るうえ、パスや権限が環境ごとに違う |
+| CPU の取り方 | `ps -o pcpu` は起動からの平均なので、`/proc/<pid>/stat` と `task/*/stat` の jiffies 差分で 2 秒区間の %CPU を出す。ps の値も `cpu_avg` として残す | 手順書の monitor.sh は ps を使うが、net thread の飽和を見るには区間値が要る |
+| SSH のホスト鍵 | 既定は known_hosts で厳格に検証（`ssh_known_hosts` 未指定なら `~/.ssh/known_hosts`）。`ssh_strict_host_key: false` は開発専用 | 鍵認証のみという共有事項の方針に合わせ、なりすましも防ぐ |
+| SSH 鍵のパスフレーズ / ESL パスワード | プロファイルには `secret:NAME` 参照だけを書く。API で値を直接書こうとすると 400 で拒否 | 共有事項 6 節 |
+| 通話イベントの対応付け | ESL の CHANNEL_* イベントで `variable_sip_h_X-Semishigure-Call` を見て自通話に対応付け、切断理由と billsec を記録 | 段階 2 で入れたヘッダーをそのまま使える。PBX 側の視点（USER_BUSY / LOSE_RACE 等）が取れる |
+| プラグインのフック | `Monitor.plugins` の `collect_metrics(adapter)` と `parse_log_line(line)` を本体側に用意し、Flatline 固有の解析は段階 4 で `plugins/flatline` に閉じ込める | 本体を汎用に保つ |
