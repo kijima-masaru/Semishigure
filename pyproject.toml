@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "semishigure"
-version = "1.0.0"
+version = "1.0.1"
 description = "PBX (FreeSWITCH / Asterisk / FusionPBX) concurrent-call load tester with a built-in SIP/RTP stack"
 readme = "README.md"
 license = "MIT"

@@ -18,6 +18,7 @@ import socket
 import sys
 import threading
 import time
+import traceback
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -76,12 +77,33 @@ def _log_setup(home: Path) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=[logging.FileHandler(home / "desktop.log", encoding="utf-8")])
 
 
+def _open_window(url: str) -> bool:
+    """Show the UI in an application window (pywebview / Edge WebView2).
+
+    Returns False, after logging why, when no window can be shown: the caller
+    falls back to the default browser. Any failure here must never take the
+    whole program down silently.
+    """
+    try:
+        import webview  # pywebview (BSD-3-Clause)
+    except Exception as exc:  # noqa: BLE001 (ImportError, or a DLL/.NET loading error)
+        log.warning("application window unavailable (%s): using the browser", exc)
+        return False
+    try:
+        webview.create_window(f"蝉時雨 Semishigure {__version__}", url, width=1360, height=900, min_size=(900, 600), text_select=True)
+        webview.start()  # returns when the window is closed
+        return True
+    except Exception:  # noqa: BLE001
+        log.exception("application window failed: using the browser")
+        return False
+
+
 def run(window: bool = True, port: int | None = None, open_browser: bool = True) -> int:
     home = DEFAULT_DIR
     _log_setup(home)
     scenario_dir = Path(os.environ.get("SEMISHIGURE_SCENARIOS") or (home / "scenarios"))
     server = DesktopServer(port or _free_port(), scenario_dir, home / "runs.sqlite3")
-    log.info("Semishigure %s starting on %s (home %s)", __version__, server.url, home)
+    log.info("Semishigure %s starting on %s (home %s, python %s)", __version__, server.url, home, sys.executable)
     try:
         server.start()
     except Exception as exc:  # noqa: BLE001
@@ -89,18 +111,15 @@ def run(window: bool = True, port: int | None = None, open_browser: bool = True)
         _alert(f"Semishigure を起動できません: {exc}\n詳細: {home / 'desktop.log'}")
         return 1
     try:
-        if window:
-            try:
-                import webview  # pywebview (BSD-3-Clause); Edge WebView2 on Windows
-            except ImportError:
-                webview = None
-            if webview is not None:
-                webview.create_window(f"蝉時雨 Semishigure {__version__}", server.url, width=1360, height=900, min_size=(900, 600), text_select=True)
-                webview.start()  # returns when the window is closed
-                return 0
-        if open_browser:
+        if window and _open_window(server.url):
+            return 0
+        if open_browser and not os.environ.get("SEMISHIGURE_NO_BROWSER"):
             webbrowser.open(server.url)
         print(f"Semishigure {__version__}: {server.url}  (Ctrl-C で終了)")
+        if window and sys.platform == "win32":
+            # no console to press Ctrl-C in: a message box is the stop button
+            _info(f"画面をブラウザで開きました: {server.url}\n\nこの OK を押すと Semishigure を終了します。\n（アプリの窓が開けなかった理由は {home / 'desktop.log'} にあります）")
+            return 0
         try:
             while server.thread.is_alive():
                 time.sleep(0.5)
@@ -112,21 +131,51 @@ def run(window: bool = True, port: int | None = None, open_browser: bool = True)
         server.stop()
 
 
-def _alert(message: str) -> None:
+def _message_box(message: str, flags: int) -> bool:
     if sys.platform == "win32":
         try:
             import ctypes
 
-            ctypes.windll.user32.MessageBoxW(None, message, "Semishigure", 0x10)  # MB_ICONERROR
-            return
+            ctypes.windll.user32.MessageBoxW(None, message, "Semishigure", flags)
+            return True
         except Exception:  # noqa: BLE001
             pass
-    print(message, file=sys.stderr)
+    return False
+
+
+def _alert(message: str) -> None:
+    if not _message_box(message, 0x10):  # MB_ICONERROR
+        print(message, file=sys.stderr)
+
+
+def _info(message: str) -> None:
+    if not _message_box(message, 0x40):  # MB_ICONINFORMATION
+        print(message)
+
+
+def _report_crash() -> None:
+    """Last resort for the GUI entry point: record and show what went wrong."""
+    text = traceback.format_exc()
+    try:
+        DEFAULT_DIR.mkdir(parents=True, exist_ok=True)
+        with open(DEFAULT_DIR / "desktop.log", "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} CRASH\n{text}\n")
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        print(text, file=sys.stderr)
+    except Exception:  # noqa: BLE001
+        pass
+    _alert(f"Semishigure が起動できませんでした。\n\n{text.strip().splitlines()[-1]}\n\n詳細: {DEFAULT_DIR / 'desktop.log'}")
 
 
 def main() -> int:
-    """GUI entry point (application window)."""
-    return run(window=True)
+    """GUI entry point (application window); never exits silently on an error."""
+    try:
+        return run(window=True)
+    except Exception:  # noqa: BLE001
+        _report_crash()
+        return 1
 
 
 def main_console() -> int:
