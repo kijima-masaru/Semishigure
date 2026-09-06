@@ -7,13 +7,15 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const base = process.argv[2] || 'http://127.0.0.1:8080', out = process.argv[3] || '';
 const axeSource = readFileSync(require.resolve('axe-core/axe.min.js'), 'utf8');
+// full Chromium (new headless) rather than the headless shell: uPlot creates an Intl.NumberFormat
+// from navigator.language at load time, and the shell reports an invalid locale
 const launch = { args: ['--no-sandbox'] };
-if (process.env.PW_CHROMIUM) launch.executablePath = process.env.PW_CHROMIUM;
+if (process.env.PW_CHROMIUM) launch.executablePath = process.env.PW_CHROMIUM; else launch.channel = 'chromium';
 const browser = await chromium.launch(launch);
 let failures = 0;
 const fail = (m) => { failures++; console.log('FAIL ' + m); };
 for (const w of [1440, 768, 375]) {
-  const page = await browser.newPage({ viewport: { width: w, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: w, height: 900 }, locale: 'ja-JP' });
   page.on('pageerror', (e) => fail(`pageerror @${w}: ${e.message.slice(0, 200)}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|cdn\.jsdelivr/.test(m.text())) fail(`console @${w}: ${m.text().slice(0, 200)}`); }); // the CDN copy of Vue may be unreachable; the vendored fallback is used then
   await page.goto(base + '/#run', { waitUntil: 'networkidle' });
