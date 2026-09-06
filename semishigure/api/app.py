@@ -5,7 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import platform
+import sys
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import MISSING
 from dataclasses import fields as dc_fields
@@ -18,7 +22,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from semishigure import __version__
+from semishigure import __version__, logbuffer
+from semishigure import update as updater
 from semishigure.core.controller import ScheduleStep, parse_schedule, preset_schedule
 from semishigure.core.run import ABSOLUTE_MAX_CONCURRENCY, ProdConfirmationRequired, Run
 from semishigure.core.store import RunStore
@@ -27,7 +32,7 @@ from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
 from semishigure.pbx.provision import Provisioner, ProvisionError, ProvisionPlan, ProvisionStore, flavor_of
 from semishigure.plugins.registry import describe_builtin
 from semishigure.scenario.model import load_scenario, scenario_from_dict
-from semishigure.secrets import SecretError, SecretStore
+from semishigure.secrets import DEFAULT_DIR, SecretError, SecretStore
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).resolve().parent.parent / "ui" / "static"
@@ -55,6 +60,10 @@ class PrecheckRequest(BaseModel):
     monitor: bool = True
     hold_seconds: float = 6.0
     ignore_register_failure: bool = True
+
+
+class ClientLog(BaseModel):
+    message: str
 
 
 class ScenarioCreate(BaseModel):
@@ -150,6 +159,9 @@ class AppState:
         self.precheck: dict | None = None  # {"running", "started_at", "hold_seconds", "scenario", "result"}
         self.lock = asyncio.Lock()
         self.clients: set[WebSocket] = set()
+        self.log = logbuffer.install()
+        self.desktop = False  # running inside the desktop launcher (self-update possible)
+        self.request_exit: Callable[[], None] | None = None
 
     def scenario_files(self) -> list[Path]:
         return sorted(p for p in self.scenario_dir.glob("*.y*ml") if p.is_file())
@@ -177,8 +189,11 @@ class AppState:
         return base
 
 
-def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = None) -> FastAPI:
+def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = None, desktop: bool = False, request_exit: Callable[[], None] | None = None) -> FastAPI:
     state = AppState(Path(scenario_dir), store)
+    state.desktop = desktop
+    state.request_exit = request_exit
+    log.info("Semishigure %s (%s) scenarios=%s home=%s python=%s %s", __version__, "desktop" if desktop else "serve", scenario_dir, DEFAULT_DIR, sys.version.split()[0], platform.platform())
     state.scenario_dir.mkdir(parents=True, exist_ok=True)
 
     @asynccontextmanager
@@ -215,6 +230,52 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
     @app.get("/api/state")
     async def api_state() -> dict:
         return state.snapshot()
+
+    # -- debug (the app's own log) and self-update ------------------------------
+    @app.get("/api/debug/log")
+    async def debug_log(lines: int = 500) -> dict:
+        desktop_log = DEFAULT_DIR / "desktop.log"
+        env = [
+            ["版", __version__],
+            ["OS", platform.platform()],
+            ["Python", sys.version.split()[0] + "  " + sys.executable],
+            ["起動方法", "デスクトップ版" if state.desktop else "semishigure serve"],
+            ["データの場所", str(DEFAULT_DIR)],
+            ["シナリオの場所", str(state.scenario_dir)],
+            ["ログファイル", str(desktop_log) if desktop_log.exists() else "（無し: このバッファのみ）"],
+            ["PID", str(os.getpid())],
+            ["ラン", (state.run.name + ("（終了）" if state.run.finished else "（実行中）")) if state.run else "なし"],
+        ]
+        return {"lines": state.log.tail(max(1, min(lines, 3000))), "env": env}
+
+    @app.post("/api/debug/client")
+    async def debug_client(req: ClientLog) -> dict:
+        logging.getLogger("semishigure.ui").warning("%s", req.message[:2000])
+        return {"ok": True}
+
+    @app.get("/api/update/check")
+    async def update_check(force: bool = False) -> dict:
+        r = await asyncio.to_thread(updater.check, force)
+        return {**r, "can_install": bool(state.desktop and updater.installed_layout() is not None)}
+
+    @app.post("/api/update/install")
+    async def update_install() -> dict:
+        r = await asyncio.to_thread(updater.check, True)
+        if r.get("error"):
+            raise HTTPException(503, f"update check failed: {r['error']}")
+        if not r.get("newer"):
+            raise HTTPException(409, "already up to date")
+        if not (state.desktop and updater.installed_layout()):
+            raise HTTPException(400, "not_supported")
+        if state.run is not None and not state.run.finished:
+            raise HTTPException(409, "run in progress")
+        try:
+            res = await asyncio.to_thread(updater.install_latest, r)
+        except updater.UpdateError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        if state.request_exit is not None:
+            asyncio.get_running_loop().call_later(1.5, state.request_exit)
+        return {"started": True, **res}
 
     # -- scenarios ------------------------------------------------------------
 

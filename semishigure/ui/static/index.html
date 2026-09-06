@@ -22,10 +22,12 @@
     <span class="st" v-else-if="precheckRunning"><span class="chip warn">事前チェック中</span></span>
     <nav class="tabs" aria-label="画面切替">
       <button v-for="t in tabs" :key="t.id" @click="setTab(t.id)" :aria-current="tab===t.id ? 'page' : null">{{ t.label }}</button>
+      <button class="theme" :class="{badge: update.newer}" @click="checkUpdate(true)" :title="updateTitle" :aria-label="updateTitle" :aria-busy="update.busy || update.installing" :disabled="update.installing"><ico name="update"></ico></button>
       <button class="theme" @click="cycleTheme" :title="'テーマ: ' + themeLabel" :aria-label="'テーマを切り替える（現在: ' + themeLabel + '）'"><ico :name="theme==='dark' ? 'moon' : theme==='light' ? 'sun' : 'auto'"></ico></button>
     </nav>
   </header>
 
+  <div v-if="update.installing" class="band warn" role="status"><ico name="warning"></ico><span class="grow">版 {{ update.latest }} に更新しています。アプリはいったん閉じ、インストールが終わると自動で再び開きます（1 分ほど）。</span></div>
   <div v-if="alert" class="band" :class="alert.kind" role="alert"><ico :name="alert.kind==='bad' ? 'x-circle' : 'warning'"></ico><span class="grow">{{ alert.text }}</span><button class="sm" @click="alert=null" aria-label="閉じる">閉じる</button></div>
   <div v-else-if="stale" class="band warn" role="status"><ico name="warning"></ico><span class="grow">サーバとの接続が切れています。表示は {{ staleFor }} 前の値です。再接続を試みています。</span></div>
   <div v-else-if="ctl.backoff_reason" class="band warn" role="status"><ico name="warning"></ico><span class="grow">{{ backoffText }}</span></div>
@@ -756,6 +758,27 @@
         </template></tbody></table></div>
         <details class="fold" v-if="detail.events && detail.events.length"><summary>イベント（{{ detail.events.length }}、新しい順）</summary><div class="fold-body events"><div v-for="(e, i) in [...detail.events].reverse()" :key="i"><span class="t">{{ mmss(e.t) }}</span><span class="k" :class="kindOf(e)">{{ kindOf(e) }}</span><span class="msg">{{ e.message }}</span></div></div></details>
       </div>
+    </div>
+  </main>
+
+  <!-- ===================== デバッグ ===================== -->
+  <main v-show="tab==='debug'" class="one">
+    <div class="panel">
+      <h2>デバッグ</h2>
+      <p class="intro">アプリ自身のログです。不具合を報告するときは「すべてコピー」で取り込んだ内容を貼り付けてください（パスワードは含まれません）。</p>
+      <div class="row">
+        <button class="primary" @click="copyDebug" :disabled="!debug.loaded">すべてコピー</button>
+        <button @click="loadDebug">更新</button>
+        <label class="check"><input type="checkbox" v-model="debug.auto"> 3 秒ごとに更新</label>
+        <span class="muted" role="status" aria-live="polite">{{ debug.copied }}</span>
+      </div>
+      <div class="table-wrap" style="margin-top:12px"><table class="rows"><tbody><tr v-for="row in debug.env" :key="row[0]"><th scope="row">{{ row[0] }}</th><td class="mono wrap">{{ row[1] }}</td></tr></tbody></table></div>
+      <label for="dbg-log" style="margin-top:12px">ログ（新しいものが下。最新 1000 行）</label>
+      <textarea id="dbg-log" class="log" readonly :value="debugText" ref="dbgEl" spellcheck="false" aria-describedby="dbg-help"></textarea>
+      <div class="help" id="dbg-help">ファイルとしては {{ (debug.env.find(r => r[0]==='ログファイル') || ['',''])[1] }}</div>
+      <h3 style="margin-top:12px">画面側のエラー</h3>
+      <p class="empty" v-if="!clientLog.length">なし</p>
+      <ul class="plain" v-else><li v-for="(e, i) in clientLog" :key="i" class="mono">{{ e.at }} {{ e.text }}</li></ul>
     </div>
   </main>
 

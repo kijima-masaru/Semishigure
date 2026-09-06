@@ -28,7 +28,12 @@ log = logging.getLogger("semishigure")
 
 def _setup_logging(verbose: int) -> None:
     level = logging.WARNING if verbose == 0 else logging.INFO if verbose == 1 else logging.DEBUG
-    logging.basicConfig(level=level, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    # the root logger stays at INFO (the デバッグ tab's buffer sees everything); the console filters
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    for h in logging.getLogger().handlers:
+        h.setLevel(level)
+    if level == logging.DEBUG:
+        logging.getLogger().setLevel(logging.DEBUG)
 
 
 # ---------------------------------------------------------------------------

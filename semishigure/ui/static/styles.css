@@ -93,7 +93,7 @@ header .theme { background: transparent; color: var(--header-muted); border-colo
 header .theme:hover { color: var(--header-fg); background: rgba(255, 255, 255, .06); }
 @media (max-width: 767px) {
   header { padding: var(--sp-2) var(--sp-3); }
-  nav.tabs { flex-basis: 100%; margin-left: 0; }
+  nav.tabs { flex-basis: 100%; margin-left: 0; flex-wrap: wrap; }
   nav.tabs button { flex: 1; }
 }
 
@@ -349,3 +349,10 @@ pre.yaml { margin: var(--sp-2) 0 0; max-height: 260px; overflow: auto; font: var
 .create h3 { font-size: var(--fs-md, 15px); font-weight: 600; margin-bottom: 4px; }
 .create .intro { margin: 0 0 var(--sp-3); color: var(--muted); }
 .create .btns { margin-top: var(--sp-3); }
+
+/* header: update icon with a "newer version" badge */
+header .theme { position: relative; }
+header .theme.badge::after { content: ""; position: absolute; top: 3px; right: 3px; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px var(--header-bg); }
+/* デバッグ */
+textarea.log { width: 100%; min-height: 360px; font-family: var(--font-mono); font-size: 12px; line-height: 1.45; white-space: pre; overflow: auto; resize: vertical; }
+ul.plain { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: var(--fs-tbl); }
