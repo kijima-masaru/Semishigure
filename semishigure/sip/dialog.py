@@ -71,13 +71,13 @@ class Dialog:
 
     # -- requests -------------------------------------------------------------
 
-    def create_request(self, method: str, via_host: str, via_port: int, cseq: int | None = None) -> SipMessage:
+    def create_request(self, method: str, via_host: str, via_port: int, cseq: int | None = None, transport: str = "UDP") -> SipMessage:
         if cseq is None:
             self.local_cseq += 1
             cseq = self.local_cseq
         req_uri, routes = self._request_uri_and_routes()
         req = SipMessage.request(method, req_uri)
-        req.add("Via", f"SIP/2.0/UDP {via_host}:{via_port};branch={new_branch()};rport")
+        req.add("Via", f"SIP/2.0/{transport} {via_host}:{via_port};branch={new_branch()};rport")
         for r in routes:
             req.add("Route", r)
         req.add("From", f"{self.local_uri};tag={self.local_tag}")

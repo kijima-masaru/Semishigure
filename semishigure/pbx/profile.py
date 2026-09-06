@@ -19,6 +19,10 @@ class PbxProfile:
     type: str = "freeswitch"  # freeswitch | asterisk
     host: str = "127.0.0.1"  # SIP signalling address
     sip_port: int = 5060
+    sip_transport: str = "udp"  # udp | tcp | tls
+    sip_tls_port: int = 5061
+    tls_verify: bool = True
+    tls_ca: str = ""
     domain: str = ""
     rtp_port_start: int = 16384
     rtp_port_end: int = 32768

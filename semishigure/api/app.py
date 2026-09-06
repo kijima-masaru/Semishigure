@@ -43,6 +43,19 @@ class StartRequest(BaseModel):
     ignore_register_failure: bool = False
 
 
+class PrecheckRequest(BaseModel):
+    scenario: str
+    pbx_profile: str | None = None
+    monitor: bool = True
+    hold_seconds: float = 6.0
+    ignore_register_failure: bool = True
+
+
+class ScenarioCreate(BaseModel):
+    name: str
+    template: str | None = None  # copy from this scenario file
+
+
 class TargetRequest(BaseModel):
     target: int
 
@@ -246,6 +259,48 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
                 raise HTTPException(502, str(exc)) from exc
             state.run = run
             return run.snapshot(series_tail=0, calls_tail=0)
+
+    @app.post("/api/precheck")
+    async def run_precheck(req: PrecheckRequest) -> dict:
+        from semishigure.core.precheck import precheck
+
+        async with state.lock:
+            if state.run is not None and not state.run.finished:
+                raise HTTPException(409, "a run is in progress")
+            sc = load_scenario(state.scenario_path(req.scenario))
+            profile = state.profiles.get(req.pbx_profile) if req.pbx_profile else None
+            if req.pbx_profile and profile is None:
+                raise HTTPException(404, f"PBX profile {req.pbx_profile!r} not found")
+            try:
+                run = Run(sc, name=f"precheck-{sc.name}", secrets=state.secrets, store=None, target=0, confirm_prod=True, profile=profile, profile_store=state.profiles, monitor_enabled=req.monitor, install_signal_handlers=False)
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(400, str(exc)) from exc
+            state.run = run
+            try:
+                return await precheck(run, hold_seconds=req.hold_seconds, ignore_register_failure=req.ignore_register_failure)
+            finally:
+                state.run = None
+
+    @app.post("/api/scenarios")
+    async def create_scenario(req: ScenarioCreate) -> dict:
+        name = req.name.strip()
+        if not name or "/" in name or "\\" in name:
+            raise HTTPException(400, "bad name")
+        p = state.scenario_dir / (name if name.endswith((".yaml", ".yml")) else f"{name}.yaml")
+        if p.exists():
+            raise HTTPException(409, f"{p.name} exists")
+        if req.template:
+            text = state.scenario_path(req.template).read_text(encoding="utf-8")
+        else:
+            text = (Path(__file__).resolve().parent.parent.parent / "examples" / "dev-freeswitch.yaml").read_text(encoding="utf-8") if (Path(__file__).resolve().parent.parent.parent / "examples" / "dev-freeswitch.yaml").exists() else "name: new-scenario\n"
+        p.write_text(text, encoding="utf-8")
+        return {"file": p.name}
+
+    @app.delete("/api/scenarios/{name}")
+    async def delete_scenario(name: str) -> dict:
+        p = state.scenario_path(name)
+        p.unlink()
+        return {"deleted": p.name}
 
     @app.post("/api/run/stop")
     async def stop_run() -> dict:

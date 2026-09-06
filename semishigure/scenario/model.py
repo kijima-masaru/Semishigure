@@ -99,6 +99,11 @@ class PbxTarget:
     rtp_port_start: int = 20000
     rtp_port_end: int = 20999
     environment: str = "dev"
+    transport: str = "udp"  # udp | tcp | tls
+    tls_verify: bool = True  # verify the PBX certificate (false for self-signed dev PBXs)
+    tls_ca: str | None = None  # CA bundle for verification
+    tls_cert: str | None = None  # our listener certificate (default: self-signed, generated)
+    tls_key: str | None = None
 
 
 @dataclass
@@ -197,6 +202,11 @@ def scenario_from_dict(data: dict, base_dir: Path | None = None) -> Scenario:
         rtp_port_start=int(p.get("rtp_port_start", 20000)),
         rtp_port_end=int(p.get("rtp_port_end", 20999)),
         environment=str(p.get("environment", "dev")),
+        transport=str(p.get("transport", "udp")).lower(),
+        tls_verify=bool(p.get("tls_verify", True)),
+        tls_ca=p.get("tls_ca"),
+        tls_cert=p.get("tls_cert"),
+        tls_key=p.get("tls_key"),
     )
     return Scenario(
         name=str(data.get("name", "scenario")),

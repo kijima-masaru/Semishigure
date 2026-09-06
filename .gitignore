@@ -25,3 +25,5 @@ deploy/freeswitch/ca/*.crt
 deploy/asterisk/runtime/
 deploy/asterisk/log/*
 !deploy/asterisk/log/.gitkeep
+deploy/freeswitch/certs/
+deploy/asterisk/certs/

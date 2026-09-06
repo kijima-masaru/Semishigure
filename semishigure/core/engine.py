@@ -80,8 +80,15 @@ class SipEngine:
         self.answerer_audio = self._load_audio(sc.answerer.audio, sc.answerer.audio_loop, seed=2)
         self._caller_password = self.secrets.resolve(sc.caller.auth_password_ref)
 
-        self.caller_endpoint = SipEndpoint(self.local_ip, sc.pbx.caller_port, trace=self.sip_trace)
-        self.answerer_endpoint = SipEndpoint(self.local_ip, sc.pbx.answerer_port, trace=self.sip_trace)
+        scheme = (sc.pbx.transport or "udp").lower()
+        tls_client = tls_server = None
+        if scheme == "tls":
+            from semishigure.sip.tls import client_context, server_context
+
+            tls_client = client_context(verify=sc.pbx.tls_verify, ca_file=sc.resolve_path(sc.pbx.tls_ca))
+            tls_server = server_context(sc.resolve_path(sc.pbx.tls_cert), sc.resolve_path(sc.pbx.tls_key), home=self.secrets.home, hostnames=[self.local_ip])
+        self.caller_endpoint = SipEndpoint(self.local_ip, sc.pbx.caller_port, trace=self.sip_trace, scheme=scheme, tls_client=tls_client, tls_server=tls_server)
+        self.answerer_endpoint = SipEndpoint(self.local_ip, sc.pbx.answerer_port, trace=self.sip_trace, scheme=scheme, tls_client=tls_client, tls_server=tls_server)
         await self.caller_endpoint.start()
         await self.answerer_endpoint.start()
 
@@ -226,7 +233,8 @@ class SipEngine:
         inbound = self.answerer.records if self.answerer else []
         return {
             "local_ip": self.local_ip,
-            "pbx": {"host": self.pbx_addr[0], "port": self.pbx_addr[1], "domain": self.scenario.pbx.domain},
+            "pbx": {"host": self.pbx_addr[0], "port": self.pbx_addr[1], "domain": self.scenario.pbx.domain, "transport": self.scenario.pbx.transport},
+            "transport": self.caller_endpoint.transport.describe() if self.caller_endpoint else {},
             "registrations": {
                 u: {"state": e.registration.state if e.registration else "n/a", "rtt_ms": e.registration.register_rtt_ms if e.registration else None, "expires": e.registration.granted_expires if e.registration else None, "busy_rejects": e.rejected_busy}
                 for u, e in (self.answerer.extensions.items() if self.answerer else {})

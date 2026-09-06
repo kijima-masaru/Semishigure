@@ -191,7 +191,7 @@ class OutboundCall:
 
     def _send_ack(self) -> None:
         assert self.dialog is not None
-        ack = self.dialog.create_request("ACK", self.endpoint.local_ip, self.endpoint.local_port, cseq=self.cseq)
+        ack = self.dialog.create_request("ACK", self.endpoint.local_ip, self.endpoint.local_port, cseq=self.cseq, transport=self.endpoint.transport_name)
         self.last_ack = ack
         self.endpoint.send_ack(ack, self.dialog.next_hop())
 
@@ -246,7 +246,7 @@ class OutboundCall:
         if rec.state != CallState.ESTABLISHED or self.dialog is None:
             return False
         uri = target if target.startswith("sip:") else f"sip:{target}@{self.domain}"
-        req = self.dialog.create_request("REFER", self.endpoint.local_ip, self.endpoint.local_port)
+        req = self.dialog.create_request("REFER", self.endpoint.local_ip, self.endpoint.local_port, transport=self.endpoint.transport_name)
         req.add("Refer-To", f"<{uri}>")
         req.add("Referred-By", f"<sip:{self.from_user}@{self.domain}>")
         rec.mark(f"refer_sent:{target}")
@@ -274,7 +274,7 @@ class OutboundCall:
             return
         if rec.state == CallState.ESTABLISHED and self.dialog is not None:
             rec.set_state(CallState.TERMINATING)
-            bye = self.dialog.create_request("BYE", self.endpoint.local_ip, self.endpoint.local_port)
+            bye = self.dialog.create_request("BYE", self.endpoint.local_ip, self.endpoint.local_port, transport=self.endpoint.transport_name)
             rec.t_bye = rec.mark("bye_sent")
             txn = self.endpoint.send_request(bye, self.dialog.next_hop())
             try:

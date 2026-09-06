@@ -396,7 +396,7 @@ class InboundCall:
         answered = self.txn.final is not None and 200 <= (self.txn.final.status or 0) < 300
         if (rec.state == CallState.ESTABLISHED or answered) and self.dialog is not None:
             rec.set_state(CallState.TERMINATING)
-            bye = self.dialog.create_request("BYE", self.endpoint.local_ip, self.endpoint.local_port)
+            bye = self.dialog.create_request("BYE", self.endpoint.local_ip, self.endpoint.local_port, transport=self.endpoint.transport_name)
             rec.t_bye = rec.mark("bye_sent")
             txn = self.endpoint.send_request(bye, self.dialog.next_hop())
             try:

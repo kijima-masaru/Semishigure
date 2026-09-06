@@ -78,3 +78,8 @@ tail -f log/freeswitch.log
 ## 社内プロキシの CA
 
 ビルド中の git / apt がプロキシ CA を必要とする場合は、PEM 形式の証明書を `ca/*.crt` として置いてください（git には含めません）。
+
+## TLS
+
+起動時に自己署名証明書を生成し、5061（`SEMI_FS_TLS_PORT` / `SEMI_AST_TLS_PORT`）で SIP over TLS を待ち受けます。証明書の検証はしません（検証用）。
+Semishigure 側はプロファイルの `sip_transport: tls` と `tls_verify: false`、または シナリオの `pbx.transport: tls` で接続します。TCP は UDP と同じポートです。
