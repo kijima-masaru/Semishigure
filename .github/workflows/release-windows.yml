@@ -3,6 +3,11 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "リリースするタグ（例 v1.0.0）。空のときはインストーラを成果物として作るだけ"
+        required: false
+        default: ""
 jobs:
   installer:
     # builds Semishigure-<version>-setup.exe (pynsist + NSIS, embedded Python 3.12) and
@@ -31,8 +36,19 @@ jobs:
         with:
           name: Semishigure-windows-installer
           path: build/nsis/*.exe
+      - name: Check that the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+          $ver = python -c "import semishigure; print(semishigure.__version__)"
+          if ($tag -ne "v$ver") { Write-Error "tag $tag does not match semishigure.__version__ $ver"; exit 1 }
       - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
+        # on a tag push: release for that tag; on a manual run with `tag`: creates the tag on the
+        # selected ref (main) and the release in one go
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: build/nsis/*.exe
           generate_release_notes: true

@@ -64,11 +64,16 @@ python tools/set_icon.py path/to/icon.png   # アイコンの差し替え（asse
 python tools/build_windows.py       # build/nsis/Semishigure-<版>-setup.exe
 ```
 
-Linux からのクロスビルドもできます（python.org から埋め込み Python を取得）。GitHub Actions の `release-windows` ワークフローは、`v*` のタグを push すると Windows ランナーで pytest → ビルド → Release への添付まで行います。手動実行（workflow_dispatch）ではアーティファクトとして取得できます。
+Linux からのクロスビルドもできます（python.org から埋め込み Python を取得）。GitHub Actions の `release-windows` ワークフローは Windows ランナーで pytest → ビルド → Release への添付まで行います。起動の仕方は二つあります。
+
+- `v*` のタグを push する
+- Actions の `release-windows` を「Run workflow」で main に対して実行し、`tag` に `v1.0.0` のように入れる（タグと Release を同時に作る）。`tag` を空にするとインストーラをアーティファクトとして作るだけ
+
+どちらもタグが `semishigure.__version__` と一致しないと失敗します。
 
 リリース手順:
 
-1. アイコンを `python tools/set_icon.py <png>` で入れる
-2. `pyproject.toml`、`semishigure/__init__.py`、`installer.cfg` の版と `CHANGELOG.md` を更新
-3. `git tag v1.0.0 && git push origin v1.0.0`
-4. Actions の `release-windows` が Release に `Semishigure-1.0.0-setup.exe` を添付する
+1. アイコンを差し替えるなら `python tools/set_icon.py <png>` で入れる
+2. `pyproject.toml`、`semishigure/__init__.py`、`installer.cfg` の版と `CHANGELOG.md` を更新して main にマージ
+3. タグを push するか、Actions から `tag` 付きで `release-windows` を実行
+4. Release に `Semishigure-<版>-setup.exe` が添付される
