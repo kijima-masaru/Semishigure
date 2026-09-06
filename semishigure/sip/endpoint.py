@@ -21,7 +21,7 @@ from semishigure.sip.transport import Addr, UdpTransport
 log = logging.getLogger(__name__)
 
 USER_AGENT = "Semishigure/0.1"
-ALLOW = "INVITE, ACK, CANCEL, BYE, OPTIONS, NOTIFY, INFO, UPDATE"
+ALLOW = "INVITE, ACK, CANCEL, BYE, OPTIONS, NOTIFY, INFO, UPDATE, REFER"
 
 
 class DialogOwner(Protocol):

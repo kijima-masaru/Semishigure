@@ -30,8 +30,10 @@ caller:
   codec: PCMU
   audio: ../audio/speech_en.wav
   audio_loop: true
-  steps:
+  steps:                     # per-call steps (call_duration is the safety cap)
     - hold: 180s
+    # - dtmf: "*4"           # RFC 2833 telephone-event
+    # - refer: "9004"        # blind transfer of the answering leg
     - bye
 
 answerer:

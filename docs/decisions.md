@@ -67,3 +67,13 @@
 | conf_override の書き方 | XML の `<param name value>` はパラメータ名指定、それ以外は正規表現置換。バックアップは `<path>.semishigure.bak`、復元は `mv` で原子的に | FreeSWITCH の conf と Asterisk の ini 形式の両方に対応。復元が中断してもバックアップが残る |
 | ws_hook のプレースホルダ | `{var.NAME}`（uuid_getvar で取るチャネル変数）、`{header.NAME}`（発信 INVITE のヘッダー）、`{pbx_uuid}`、`{secret:NAME}` | loadtest_operator.py の「chat_uuid を取って接続し、9001 を待って openChat を送る」を設定だけで表せる。PBX 側の uuid は ESL / AMI の対応付けから得る |
 | 外部プラグイン | `module: パッケージ.モジュール:クラス` で任意のクラスを読み込む | エントリポイント登録より単純で、シナリオ YAML だけで完結する |
+
+## 通話ステップと記録表で決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| ステップと通話長 | `steps` があればステップが通話を進め、`call_duration` は上限（超えたら BYE）として残す | UI からの通話長変更と、ステップの途中で相手が切る場合の両方に対応 |
+| DTMF 送出中の音声 | telephone-event の間は音声フレームを送らない | 電話機と同じ振る舞い。PBX 側で音声と DTMF が混ざらない |
+| REFER の完了判定 | 202 を受けたあと NOTIFY（sipfrag）に 200 を返し、PBX からの BYE で終了を判定 | FreeSWITCH は転送成立後に発信側へ BYE を送る。NOTIFY の内容に依存しない |
+| 記録表の列構成 | 行 = 指標、列 = ラン。汎用の行は本体、サービス固有の行はプラグインの `report_rows` | 手順書の記録表と同じ向き。ラン同士の比較がしやすい |
+| 「安定時」の値 | ランの後半 50% のサンプルの平均と、全体の最大 | 立ち上げ中の値を除く単純なルール。必要なら後で窓を指定できるようにする |

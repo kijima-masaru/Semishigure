@@ -184,7 +184,7 @@ class OutboundCall:
             return
         codec, pt = chosen
         rec.codec = codec
-        self.media.set_remote(media.ip, media.port, codec, pt)
+        self.media.set_remote(media.ip, media.port, codec, pt, media.telephone_event_pt())
         rec.t_established = rec.mark("established")
         rec.set_state(CallState.ESTABLISHED)
         self.media.start()
@@ -194,6 +194,77 @@ class OutboundCall:
         ack = self.dialog.create_request("ACK", self.endpoint.local_ip, self.endpoint.local_port, cseq=self.cseq)
         self.last_ack = ack
         self.endpoint.send_ack(ack, self.dialog.next_hop())
+
+    # -- steps (scenario caller.steps) ----------------------------------------------
+
+    async def run_steps(self, steps: list[dict], max_seconds: float | None = None) -> None:
+        """Execute scenario steps after the call is established: hold / dtmf / refer / bye.
+        Returns when the steps are done or the call ended; ``max_seconds`` caps the total."""
+        from semishigure.scenario.model import parse_duration
+
+        rec = self.record
+        deadline = (asyncio.get_running_loop().time() + max_seconds) if max_seconds else None
+        for step in steps:
+            if rec.state == CallState.DONE:
+                return
+            if isinstance(step, str):
+                step = {step: None}
+            key = next(iter(step))
+            value = step[key]
+            if key == "hold":
+                wait = parse_duration(value, 0.0)
+                if deadline is not None:
+                    wait = min(wait, max(0.0, deadline - asyncio.get_running_loop().time()))
+                try:
+                    await asyncio.wait_for(self.ended.wait(), wait)
+                    return  # ended by the far end while holding
+                except TimeoutError:
+                    pass
+            elif key == "dtmf":
+                digits = str(value or "")
+                if self.media is None:
+                    continue
+                try:
+                    secs = self.media.send_dtmf(digits, int(step.get("duration_ms", 100)), int(step.get("gap_ms", 60)))
+                    rec.mark(f"dtmf:{digits}")
+                    await asyncio.sleep(secs)
+                except (RuntimeError, NotImplementedError) as exc:
+                    rec.mark(f"dtmf_failed:{exc}")
+            elif key == "refer":
+                await self.refer(str(value))
+            elif key == "bye":
+                await self.hangup("steps_bye")
+                return
+            else:
+                rec.mark(f"unknown_step:{key}")
+            if deadline is not None and asyncio.get_running_loop().time() >= deadline:
+                return
+
+    async def refer(self, target: str, timeout: float = 10.0) -> bool:
+        """Blind transfer (RFC 3515): REFER the peer to *target*; the PBX then hangs us up."""
+        rec = self.record
+        if rec.state != CallState.ESTABLISHED or self.dialog is None:
+            return False
+        uri = target if target.startswith("sip:") else f"sip:{target}@{self.domain}"
+        req = self.dialog.create_request("REFER", self.endpoint.local_ip, self.endpoint.local_port)
+        req.add("Refer-To", f"<{uri}>")
+        req.add("Referred-By", f"<sip:{self.from_user}@{self.domain}>")
+        rec.mark(f"refer_sent:{target}")
+        txn = self.endpoint.send_request(req, self.dialog.next_hop())
+        try:
+            resp = await txn.wait_final(timeout=timeout)
+        except TimeoutError:
+            rec.mark("refer_timeout")
+            return False
+        status = resp.status or 0
+        rec.mark(f"refer_{status}")
+        if status >= 300:
+            return False
+        try:
+            await asyncio.wait_for(self.ended.wait(), timeout)
+        except TimeoutError:
+            pass
+        return True
 
     # -- termination ---------------------------------------------------------------
 
@@ -264,6 +335,10 @@ class OutboundCall:
                 resp.body = build_answer(self.media.local_ip, self.media.local_port, rec.codec, 101)
             txn.respond(resp)
             rec.mark("reinvite_answered")
+        elif method == "NOTIFY":
+            txn.respond(SipMessage.response(200))
+            if b"200" in request.body and "sipfrag" in request.content_type:
+                rec.mark("refer_notify_200")
         else:
             txn.respond(SipMessage.response(200))
 

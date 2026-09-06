@@ -20,6 +20,8 @@ from semishigure.media.base import MediaEngine, MediaSession, MediaStats
 from semishigure.media.rtp import build_packet, parse_packet
 from semishigure.media.wav import FRAME_SAMPLES, AudioSource, write_wav
 
+DTMF_EVENTS = {**{str(d): d for d in range(10)}, "*": 10, "#": 11, "A": 12, "B": 13, "C": 14, "D": 15}
+
 log = logging.getLogger(__name__)
 
 TICK = 0.020
@@ -50,17 +52,24 @@ class PythonMediaSession(MediaSession):
         self.sending = False
         self.closed = False
         self._marker_pending = True
+        self.dtmf_payload_type: int | None = None
+        self._dtmf_queue: list[tuple[int, int]] = []  # (event, duration in samples)
+        self._dtmf_current: tuple[int, int, int] | None = None  # (event, duration, sent samples)
+        self._dtmf_end_left = 0
+        self._dtmf_gap_left = 0
         self._last_rx_seq: int | None = None
         self._rx_count_for_level = 0
         self._lock = threading.Lock()
 
     # -- MediaSession ---------------------------------------------------------
 
-    def set_remote(self, ip: str, port: int, codec: str, payload_type: int) -> None:
+    def set_remote(self, ip: str, port: int, codec: str, payload_type: int, dtmf_payload_type: int | None = None) -> None:
         with self._lock:
             self.remote = (ip, port)
             self.codec = codec
             self.payload_type = payload_type
+            if dtmf_payload_type is not None:
+                self.dtmf_payload_type = dtmf_payload_type
             self._stats.codec = codec
             if self.source is not None:
                 self.payload = self.source.payload(codec)
@@ -69,7 +78,7 @@ class PythonMediaSession(MediaSession):
     def start(self) -> None:
         if self.sending or self.closed:
             return
-        if self.source is None or self.remote is None or self.total_frames == 0:
+        if self.remote is None or (self.source is None and not self._dtmf_queue) or (self.source is not None and self.total_frames == 0):
             return
         self.sending = True
         self.engine._attach_to_pump(self)
@@ -93,10 +102,73 @@ class PythonMediaSession(MediaSession):
     def stats(self) -> MediaStats:
         return self._stats
 
+    def send_dtmf(self, digits: str, duration_ms: int = 100, gap_ms: int = 60) -> float:
+        if self.dtmf_payload_type is None:
+            raise RuntimeError("peer did not negotiate telephone-event")
+        dur = max(FRAME_SAMPLES, int(duration_ms * 8) // FRAME_SAMPLES * FRAME_SAMPLES)
+        gap = max(0, int(gap_ms * 8) // FRAME_SAMPLES)
+        with self._lock:
+            for d in digits.upper():
+                if d in DTMF_EVENTS:
+                    self._dtmf_queue.append((DTMF_EVENTS[d], dur))
+                    self._dtmf_queue.append((-1, gap))  # gap marker
+            if not self.sending and self.remote is not None:
+                self.sending = True
+                self.engine._attach_to_pump(self)
+        total_frames = sum((d // FRAME_SAMPLES if ev >= 0 else d) + (3 if ev >= 0 else 0) for ev, d in self._dtmf_queue)
+        return total_frames * TICK
+
     # -- called by pump thread --------------------------------------------------
+
+    def _dtmf_tick(self) -> bool:
+        """Send one DTMF packet if an event is in progress; True when a packet was sent
+        (audio is suppressed during the event, like a phone would)."""
+        if self._dtmf_gap_left > 0:
+            self._dtmf_gap_left -= 1
+            return True
+        if self._dtmf_current is None:
+            if not self._dtmf_queue:
+                return False
+            ev, dur = self._dtmf_queue.pop(0)
+            if ev < 0:
+                self._dtmf_gap_left = dur
+                return True
+            self._dtmf_current = (ev, dur, 0)
+            self._dtmf_end_left = 3
+            self._dtmf_ts = self.timestamp
+            marker = True
+        else:
+            marker = False
+        ev, dur, sent = self._dtmf_current
+        end = sent >= dur
+        if not end:
+            sent += FRAME_SAMPLES
+            self._dtmf_current = (ev, dur, sent)
+        else:
+            self._dtmf_end_left -= 1
+        payload = bytes([ev, (0x80 if end else 0) | 10, (min(sent, dur) >> 8) & 0xFF, min(sent, dur) & 0xFF])
+        pkt = build_packet(self.dtmf_payload_type or 101, self.seq, self._dtmf_ts, self.ssrc, payload, marker=marker)
+        self.seq = (self.seq + 1) & 0xFFFF
+        self.timestamp = (self.timestamp + FRAME_SAMPLES) & 0xFFFFFFFF
+        try:
+            self.sock.sendto(pkt, self.remote)
+        except OSError:
+            pass
+        self._stats.extra["dtmf_packets"] = self._stats.extra.get("dtmf_packets", 0) + 1
+        if end and self._dtmf_end_left <= 0:
+            self._dtmf_current = None
+            self._stats.extra["dtmf_events"] = self._stats.extra.get("dtmf_events", 0) + 1
+        return True
 
     def _tick(self, now: float, late: float) -> None:
         if not self.sending or self.remote is None:
+            return
+        if (self._dtmf_queue or self._dtmf_current or self._dtmf_gap_left) and self._dtmf_tick():
+            if self.source is None and not self._dtmf_queue and self._dtmf_current is None and self._dtmf_gap_left == 0:
+                self.sending = False
+                self.engine._detach_from_pump(self)
+            return
+        if self.source is None or self.total_frames == 0:
             return
         start = self.frame_index * FRAME_SAMPLES
         frame = self.payload[start : start + FRAME_SAMPLES]
