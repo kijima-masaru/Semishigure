@@ -81,6 +81,10 @@ header .st b { color: var(--header-fg); font-weight: 500; }
 header .st .trunc { max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.on { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--bad); }
+header .logo { width: 22px; height: 22px; border-radius: 5px; flex: none; image-rendering: pixelated; }
+.field .label { display: block; font-size: var(--fs-sm); font-weight: 500; margin-bottom: 4px; }
 nav.tabs { margin-left: auto; display: flex; gap: var(--sp-1); }
 nav.tabs button { background: transparent; color: var(--header-muted); border: 1px solid transparent; min-height: 32px; padding: var(--sp-1) var(--sp-3); white-space: nowrap; }
 nav.tabs button:hover { background: rgba(255, 255, 255, .06); color: var(--header-fg); }
@@ -327,3 +331,7 @@ dialog .actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 .plan .d { display: grid; gap: 2px; }
 .plan .d small { color: var(--muted); }
 pre.yaml { margin: var(--sp-2) 0 0; max-height: 260px; overflow: auto; font: var(--fs-sm)/1.45 var(--font-mono); background: var(--surface-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); white-space: pre; }
+
+/* scenario: new-scenario block */
+.create { margin-top: 12px; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.create .btns { margin-top: var(--sp-3); }
