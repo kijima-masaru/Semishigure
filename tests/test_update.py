@@ -77,7 +77,7 @@ def test_debug_log_and_update_endpoints(tmp_path: Path, monkeypatch):
     logging.getLogger("semishigure.test").info("hello from the test %s", 42)
     r = c.get("/api/debug/log?lines=50").json()
     assert any("hello from the test 42" in line for line in r["lines"])
-    assert [k for k, _ in r["env"]][:2] == ["版", "OS"] and r["env"][0][1] == __version__
+    assert [k for k, _ in r["env"]][:2] == ["Ver.", "OS"] and r["env"][0][1] == __version__
     assert c.post("/api/debug/client", json={"message": "TypeError: x is undefined"}).json()["ok"]
     assert any("TypeError: x is undefined" in line for line in c.get("/api/debug/log").json()["lines"])
     up._cache.clear()
