@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
+from dataclasses import MISSING
+from dataclasses import fields as dc_fields
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +44,8 @@ class StartRequest(BaseModel):
     confirm_prod: bool = False
     name: str = ""
     ignore_register_failure: bool = False
+    schedule: str | None = None  # "5:180,10:180,20:180" applied right after start
+    preset: str | None = None  # scenario preset name applied right after start
 
 
 class PrecheckRequest(BaseModel):
@@ -92,6 +97,8 @@ class AppState:
         self.secrets = SecretStore()
         self.profiles = ProfileStore()
         self.run: Run | None = None
+        self.precheck_run: Run | None = None
+        self.precheck: dict | None = None  # {"running", "started_at", "hold_seconds", "scenario", "result"}
         self.lock = asyncio.Lock()
         self.clients: set[WebSocket] = set()
 
@@ -110,9 +117,14 @@ class AppState:
         return self.run
 
     def snapshot(self) -> dict:
-        base = {"version": __version__, "scenario_dir": str(self.scenario_dir), "run": None}
+        base = {"version": __version__, "scenario_dir": str(self.scenario_dir), "run": None, "now": time.time(), "precheck": None}
         if self.run is not None:
             base["run"] = self.run.snapshot()
+        if self.precheck is not None:
+            pc = dict(self.precheck)
+            if pc.get("running"):
+                pc["elapsed_s"] = round(time.time() - pc["started_at"], 1)
+            base["precheck"] = pc
         return base
 
 
@@ -123,12 +135,13 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
     async def lifespan(_app: FastAPI):
         yield
         # server shutdown (SIGTERM / Ctrl-C): hang up every call, restore plugins, unregister
-        if state.run is not None and not state.run.finished:
-            log.warning("server shutting down with a run in progress: stopping it")
-            try:
-                await asyncio.wait_for(state.run.stop(), 30)
-            except Exception as exc:  # noqa: BLE001
-                log.error("run stop on shutdown failed: %s", exc)
+        for r in (state.run, state.precheck_run):
+            if r is not None and not r.finished:
+                log.warning("server shutting down with a run in progress: stopping it")
+                try:
+                    await asyncio.wait_for(r.stop(), 30)
+                except Exception as exc:  # noqa: BLE001
+                    log.error("run stop on shutdown failed: %s", exc)
 
     app = FastAPI(title="Semishigure", version=__version__, lifespan=lifespan)
     app.state.semishigure = state
@@ -182,7 +195,8 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
 
     @app.get("/api/pbx/profiles")
     async def list_profiles() -> dict:
-        return {"path": str(state.profiles.path), "profiles": [p.public() for p in state.profiles.load_all()], "fields": list(PbxProfile.__dataclass_fields__)}
+        defaults = {f.name: (f.default if f.default is not MISSING else (f.default_factory() if f.default_factory is not MISSING else None)) for f in dc_fields(PbxProfile)}
+        return {"path": str(state.profiles.path), "profiles": [p.public() for p in state.profiles.load_all()], "fields": list(PbxProfile.__dataclass_fields__), "defaults": defaults}
 
     @app.put("/api/pbx/profiles/{name}")
     async def save_profile(name: str, body: ProfileBody) -> dict:
@@ -241,6 +255,8 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         async with state.lock:
             if state.run is not None and not state.run.finished:
                 raise HTTPException(409, "a run is already in progress")
+            if state.precheck is not None and state.precheck.get("running"):
+                raise HTTPException(409, "a precheck is in progress")
             sc = load_scenario(state.scenario_path(req.scenario))
             profile = None
             if req.pbx_profile:
@@ -257,7 +273,23 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
                 raise HTTPException(400, str(exc)) from exc
             except RuntimeError as exc:
                 raise HTTPException(502, str(exc)) from exc
+            previous = state.run
             state.run = run
+            try:
+                if req.preset:
+                    preset = sc.load.presets.get(req.preset)
+                    if preset is None:
+                        raise HTTPException(404, f"preset {req.preset!r} not found")
+                    steps, _, _ = preset_schedule(preset, run.config.call_duration)
+                    run.controller.run_schedule(steps, then_target=0)
+                elif req.schedule:
+                    run.controller.run_schedule(parse_schedule(req.schedule, run.config.call_duration), then_target=0)
+            except (HTTPException, ValueError) as exc:
+                await run.stop()
+                state.run = previous
+                if isinstance(exc, HTTPException):
+                    raise
+                raise HTTPException(400, f"invalid schedule: {exc}") from exc
             return run.snapshot(series_tail=0, calls_tail=0)
 
     @app.post("/api/precheck")
@@ -267,6 +299,8 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         async with state.lock:
             if state.run is not None and not state.run.finished:
                 raise HTTPException(409, "a run is in progress")
+            if state.precheck is not None and state.precheck.get("running"):
+                raise HTTPException(409, "a precheck is in progress")
             sc = load_scenario(state.scenario_path(req.scenario))
             profile = state.profiles.get(req.pbx_profile) if req.pbx_profile else None
             if req.pbx_profile and profile is None:
@@ -275,11 +309,18 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
                 run = Run(sc, name=f"precheck-{sc.name}", secrets=state.secrets, store=None, target=0, confirm_prod=True, profile=profile, profile_store=state.profiles, monitor_enabled=req.monitor, install_signal_handlers=False)
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(400, str(exc)) from exc
-            state.run = run
+            # the precheck run is kept apart from state.run so the UI stays on the form (docs/ui-ux-proposal.md F1)
+            state.precheck_run = run
+            state.precheck = {"running": True, "started_at": time.time(), "hold_seconds": req.hold_seconds, "scenario": sc.name, "pbx_profile": req.pbx_profile, "result": None}
             try:
-                return await precheck(run, hold_seconds=req.hold_seconds, ignore_register_failure=req.ignore_register_failure)
+                result = await precheck(run, hold_seconds=req.hold_seconds, ignore_register_failure=req.ignore_register_failure)
+            except Exception as exc:  # noqa: BLE001
+                result = {"ok": False, "items": [{"name": "起動", "ok": False, "detail": str(exc)}], "elapsed_s": 0}
             finally:
-                state.run = None
+                state.precheck_run = None
+                state.precheck = {"running": False, "finished_at": time.time(), "scenario": sc.name, "pbx_profile": req.pbx_profile, "result": None}
+            state.precheck["result"] = result
+            return result
 
     @app.post("/api/scenarios")
     async def create_scenario(req: ScenarioCreate) -> dict:
@@ -417,13 +458,37 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/api/runs/{run_id}")
-    async def get_run(run_id: int) -> dict:
+    async def get_run(run_id: int, max_points: int = 1500) -> dict:
         if state.store is None:
             raise HTTPException(404, "no store")
         r = state.store.get_run(run_id)
         if r is None:
             raise HTTPException(404, "run not found")
+        if max_points > 0 and r.get("samples"):
+            r = dict(r)
+            r["samples_total"] = len(r["samples"])
+            r["samples"] = decimate_samples(r["samples"], max_points)
         return r
+
+    @app.get("/api/runs/{run_id}/rows")
+    async def get_run_rows(run_id: int) -> dict:
+        """The record-sheet rows (same labels and order as the xlsx) for one run."""
+        from semishigure.report.xlsx import generic_rows
+
+        if state.store is None:
+            raise HTTPException(404, "no store")
+        r = state.store.get_run(run_id)
+        if r is None:
+            raise HTTPException(404, "run not found")
+        rows = []
+        section = ""
+        for label, value in generic_rows(r):
+            if value is None and str(label).startswith("§"):
+                section = str(label)[1:]
+                rows.append({"section": section, "label": None, "value": None})
+            else:
+                rows.append({"section": section, "label": label, "value": value})
+        return {"id": run_id, "name": r.get("name"), "rows": rows}
 
     # -- websocket feed -------------------------------------------------------------
 
@@ -462,3 +527,29 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         return JSONResponse({"detail": str(exc)}, status_code=500)
 
     return app
+
+
+def decimate_samples(samples: list[dict], max_points: int) -> list[dict]:
+    """Reduce a sample list to about max_points per kind, keeping the max of every
+    numeric field inside each bucket (peaks such as rtp_late_max_ms survive)."""
+    by_kind: dict[str | None, list[dict]] = {}
+    for p in samples:
+        by_kind.setdefault(p.get("kind"), []).append(p)
+    out: list[dict] = []
+    for pts in by_kind.values():
+        if len(pts) <= max_points:
+            out.extend(pts)
+            continue
+        step = len(pts) / max_points
+        i = 0.0
+        while i < len(pts):
+            bucket = pts[int(i) : int(i + step)] or [pts[int(i)]]
+            merged = dict(bucket[-1])
+            for k in merged:
+                vals = [b.get(k) for b in bucket if isinstance(b.get(k), (int, float)) and not isinstance(b.get(k), bool)]
+                if vals and k != "t":
+                    merged[k] = max(vals)
+            out.append(merged)
+            i += step
+    out.sort(key=lambda p: p.get("t", 0))
+    return out

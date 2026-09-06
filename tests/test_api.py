@@ -70,3 +70,33 @@ def test_scenarios_profiles_precheck_and_export(tmp_path: Path, monkeypatch):
         assert x.status_code == 200 and x.headers["content-type"].startswith("application/vnd.openxmlformats") and len(x.content) > 5000
         runs = c.get("/api/runs").json()
         assert runs and c.get(f"/api/runs/{runs[0]['id']}").json()["summary"]["calls_started"] == 1
+        # the precheck result stays available to the UI, and the run never shows as state.run
+        st = c.get("/api/state").json()
+        assert st["run"]["finished"] is True and st["precheck"]["running"] is False and st["precheck"]["result"]["ok"] is False
+        # record-sheet rows for the UI (same labels as the xlsx)
+        rows = c.get(f"/api/runs/{runs[0]['id']}/rows").json()["rows"]
+        labels = [r["label"] for r in rows if r["label"]]
+        assert "発信 / 確立 / 失敗" in labels and rows[0]["label"] is None and rows[0]["section"] == "実施情報"
+        assert c.get("/api/runs/999/rows").status_code == 404
+        # profile defaults for the form, and a schedule at start (invalid text leaves no run behind)
+        assert c.get("/api/pbx/profiles").json()["defaults"]["sip_port"] == 5060
+        assert c.post("/api/run/start", json={"scenario": "loop.yaml", "target": 0, "schedule": "abc", "ignore_register_failure": True}).status_code == 400
+        assert c.get("/api/state").json()["run"]["finished"] is True
+        r = c.post("/api/run/start", json={"scenario": "loop.yaml", "target": 0, "schedule": "1:5,0:5", "ignore_register_failure": True, "name": "sched"})
+        assert r.status_code == 200, r.text
+        assert [st["target"] for st in r.json()["controller"]["schedule"]] == [1, 0] and r.json()["name"] == "sched"
+        time.sleep(0.5)
+        assert c.get("/api/state").json()["run"]["controller"]["schedule_step"]["target"] == 1
+        c.post("/api/run/stop")
+
+
+def test_decimate_samples_keeps_peaks():
+    from semishigure.api.app import decimate_samples
+
+    pts = [{"t": i, "established": i % 7, "rtp_late_max_ms": 10.0 if i == 500 else 0.5} for i in range(1000)]
+    pts += [{"t": i, "kind": "monitor", "channels": i % 3} for i in range(1000)]
+    out = decimate_samples(pts, 100)
+    load = [p for p in out if p.get("kind") != "monitor"]
+    assert 90 <= len(load) <= 110 and len(out) <= 220
+    assert max(p["rtp_late_max_ms"] for p in load) == 10.0
+    assert decimate_samples(pts[:50], 100) == pts[:50]

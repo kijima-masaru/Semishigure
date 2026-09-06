@@ -5,478 +5,463 @@
 <title>Semishigure</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
+<script>try { const t = localStorage.getItem('semishigure.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="stylesheet" href="/static/vendor/uPlot.min.css">
+<link rel="stylesheet" href="/static/styles.css">
 <script src="https://cdn.jsdelivr.net/npm/vue@3.4.38/dist/vue.global.prod.js"></script>
 <script>if (!window.Vue) { document.write('<script src="/static/vendor/vue.global.prod.js"><\/script>'); }</script>
-<style>
-  :root { --bg:#f6f7f9; --panel:#fff; --line:#dfe3e8; --text:#1f2933; --muted:#6b7280; --accent:#0f766e; --warn:#b45309; --bad:#b91c1c; --ok:#15803d; }
-  * { box-sizing: border-box; }
-  body { margin:0; font: 14px/1.45 system-ui, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; background:var(--bg); color:var(--text); }
-  header { display:flex; align-items:center; gap:16px; padding:10px 18px; background:#111827; color:#fff; }
-  header h1 { font-size:18px; margin:0; letter-spacing:.04em; }
-  header .st { font-size:12px; color:#cbd5e1; }
-  header .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#6b7280; margin-right:6px; }
-  header .dot.on { background:#22c55e; }
-  main { display:grid; grid-template-columns: 340px 1fr; gap:14px; padding:14px 18px; }
-  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; }
-  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
-  label { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
-  input, select, textarea, button { font: inherit; }
-  input[type=number], input[type=text], select, textarea { width:100%; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; }
-  button { padding:6px 12px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
-  button:hover { background:#f3f4f6; }
-  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
-  button.danger { background:var(--bad); color:#fff; border-color:var(--bad); }
-  button:disabled { opacity:.5; cursor:default; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px; }
-  .slider { width:100%; margin:8px 0 2px; }
-  .target { font-size:34px; font-weight:600; line-height:1; }
-  .tiles { display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:10px; }
-  .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
-  .tile .k { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-  .tile .v { font-size:24px; font-weight:600; }
-  .tile .v.small { font-size:16px; }
-  table { width:100%; border-collapse:collapse; font-size:12.5px; }
-  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { color:var(--muted); font-weight:500; }
-  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
-  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px; background:#e5e7eb; }
-  .tag.ESTABLISHED { background:#dcfce7; color:var(--ok); }
-  .tag.RINGING, .tag.INVITING, .tag.AUTH { background:#fef3c7; color:var(--warn); }
-  .tag.DONE { background:#e5e7eb; }
-  .tag.TERMINATING { background:#fee2e2; color:var(--bad); }
-  .warn { color:var(--warn); }
-  .bad { color:var(--bad); }
-  canvas { width:100%; height:220px; display:block; }
-  .events { max-height:180px; overflow:auto; font-size:12px; }
-  .events div { padding:2px 0; border-bottom:1px dashed var(--line); }
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-  .scroll { max-height:340px; overflow:auto; }
-  details summary { cursor:pointer; color:var(--muted); font-size:12px; }
-  .err { background:#fee2e2; color:var(--bad); padding:6px 10px; border-radius:6px; margin-top:8px; font-size:12px; }
-</style>
+<script src="/static/vendor/uPlot.iife.min.js"></script>
+<script src="/static/charts.js"></script>
 </head>
 <body>
-<div id="app">
+<div id="app" v-cloak>
   <header>
     <h1>蝉時雨 Semishigure</h1>
-    <span class="st"><span class="dot" :class="{on: connected}"></span>{{ connected ? 'connected' : 'disconnected' }}</span>
-    <span class="st" v-if="run">run <b>{{ run.name }}</b> · {{ run.pbx.host }} · {{ run.pbx.domain }} · <span :class="{warn: run.pbx.environment==='prod'}">{{ run.pbx.environment }}</span> · {{ run.stats.elapsed_s }}s</span>
-    <span class="st" v-else>no run</span>
-    <span style="margin-left:auto" class="st">
-      <button v-for="t in ['run','scenarios','profiles','results']" @click="tab=t" :class="{primary: tab===t}" style="margin-left:4px">{{ {run:'実行', scenarios:'シナリオ', profiles:'PBX', results:'結果'}[t] }}</button>
-    </span>
+    <span class="st" role="status" aria-live="polite"><span class="dot" :class="{on: connected}" aria-hidden="true"></span>{{ connected ? 'サーバ接続中' : '切断中（再接続しています）' }}<span v-if="lastUpdate">· 最終更新 <b class="mono">{{ lastUpdate }}</b></span></span>
+    <span class="st" v-if="run"><span class="chip" :class="run.finished ? '' : 'ok'">{{ run.finished ? '終了' : '実行中' }}</span><b class="trunc mono" :title="run.name">{{ run.name }}</b><span class="hide-sm">{{ run.pbx.host }}</span><span v-if="run.pbx.environment==='prod'" class="chip prod" aria-label="本番環境">PROD</span><span v-else class="chip hide-sm">{{ run.pbx.environment }}</span><span class="mono" v-if="!run.finished">{{ mmss(run.stats.elapsed_s) }}</span></span>
+    <span class="st" v-else-if="precheckRunning"><span class="chip warn">事前チェック中</span></span>
+    <span class="st" v-else>ランなし</span>
+    <nav class="tabs" aria-label="画面切替">
+      <button v-for="t in tabs" :key="t.id" @click="setTab(t.id)" :aria-current="tab===t.id ? 'page' : null">{{ t.label }}</button>
+      <button class="theme" @click="cycleTheme" :title="'テーマ: ' + themeLabel" :aria-label="'テーマを切り替える（現在: ' + themeLabel + '）'"><ico :name="theme==='dark' ? 'moon' : theme==='light' ? 'sun' : 'auto'"></ico></button>
+    </nav>
   </header>
-  <main v-show="tab==='scenarios'" style="grid-template-columns: 1fr">
-    <div class="panel">
-      <h2>Scenarios <span style="font-weight:400;text-transform:none">({{ scenarioDir }})</span></h2>
-      <div class="row">
-        <select v-model="editor.file" @change="loadScenarioText"><option v-for="s in scenarios" :value="s.file">{{ s.file }}</option></select>
-        <input type="text" v-model="editor.newName" placeholder="new-scenario" style="width:180px">
-        <button @click="createScenario">選択中をコピーして作成</button>
-        <button class="danger" @click="deleteScenario" :disabled="!editor.file">削除</button>
+
+  <div v-if="alert" class="band" :class="alert.kind" role="alert"><ico :name="alert.kind==='bad' ? 'x-circle' : 'warning'"></ico><span class="grow">{{ alert.text }}</span><button class="sm" @click="alert=null" aria-label="閉じる">閉じる</button></div>
+  <div v-else-if="stale" class="band warn" role="status"><ico name="warning"></ico><span class="grow">サーバとの接続が切れています。表示は {{ staleFor }} 前の値です。再接続を試みています。</span></div>
+  <div v-else-if="ctl.backoff_reason" class="band warn" role="status"><ico name="warning"></ico><span class="grow">{{ backoffText }}</span></div>
+  <p class="sr-only" role="status" aria-live="polite">{{ srSummary }}</p>
+  <div v-if="toast" class="toast" :class="toast.kind" role="status">{{ toast.text }}</div>
+
+  <!-- ===================== 実行 ===================== -->
+  <main v-show="tab==='run'" :class="{one: false}">
+    <div class="stack">
+      <!-- ラン前 / ラン後: 開始フォーム -->
+      <form class="panel" v-if="!runActive" @submit.prevent="startRun" novalidate>
+        <h2>実行 <span class="sub" v-if="runFinished">· 次のラン</span></h2>
+        <fieldset class="first">
+          <legend>1. 何を掛けるか</legend>
+          <div class="field"><label for="f-scenario">シナリオ</label>
+            <select id="f-scenario" v-model="form.scenario" :aria-invalid="!!fieldErrors.scenario" aria-describedby="f-scenario-err">
+              <option v-for="s in scenarios" :key="s.file" :value="s.file">{{ s.name || s.file }}<template v-if="s.pbx"> ({{ s.pbx.host }}, {{ s.pbx.environment }})</template><template v-if="s.error"> — 読み込みエラー</template></option>
+            </select>
+            <div class="ferr" id="f-scenario-err" v-if="fieldErrors.scenario">{{ fieldErrors.scenario }}</div>
+            <div class="help" v-if="!scenarios.length">{{ scenarioDir }} に YAML がありません。シナリオタブで作成してください。</div>
+          </div>
+          <div class="field"><label for="f-profile">PBX プロファイル</label>
+            <select id="f-profile" v-model="form.pbx_profile">
+              <option value="">{{ selectedScenario && selectedScenario.pbx_profile ? 'シナリオの指定に従う（' + selectedScenario.pbx_profile + '）' : 'なし（シナリオの pbx: 節を使う）' }}</option>
+              <option v-for="p in profiles" :key="p.name" :value="p.name">{{ p.name }}（{{ p.executor }} {{ p.host }}, {{ p.environment }}）</option>
+            </select>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>2. どう上げるか</legend>
+          <div class="radios" role="radiogroup" aria-label="実行方法">
+            <label class="check"><input type="radio" v-model="form.mode" value="fixed"> 固定 N</label>
+            <div class="sub" v-show="form.mode==='fixed'"><label for="f-target" class="sr-only">目標 N</label><input id="f-target" type="number" inputmode="numeric" v-model.number="form.target" min="0" :max="effectiveCap"></div>
+            <label class="check"><input type="radio" v-model="form.mode" value="schedule"> 段階（N:秒 をカンマ区切り）</label>
+            <div class="sub field" v-show="form.mode==='schedule'"><label for="f-schedule" class="sr-only">段階</label><input id="f-schedule" type="text" v-model="form.schedule" placeholder="5:180,10:180,20:180" aria-describedby="f-schedule-help" :aria-invalid="!!fieldErrors.schedule"><div class="help" id="f-schedule-help">秒を省くと通話長と同じ。例: 5:180,10:180,20:180</div><div class="ferr" v-if="fieldErrors.schedule">{{ fieldErrors.schedule }}</div></div>
+            <label class="check" v-if="presets.length"><input type="radio" v-model="form.mode" value="preset"> プリセット</label>
+            <div class="sub" v-show="form.mode==='preset' && presets.length"><label for="f-preset" class="sr-only">プリセット</label><select id="f-preset" v-model="form.preset"><option v-for="p in presets" :key="p" :value="p">{{ p }}</option></select></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label for="f-ramp">発信レート（本/秒）</label><input id="f-ramp" type="number" inputmode="decimal" step="0.1" min="0.1" v-model.number="form.ramp_rate"></div>
+            <div class="field"><label for="f-dur">通話長（秒）</label><input id="f-dur" type="number" inputmode="numeric" min="1" v-model.number="form.call_duration"></div>
+            <div class="field"><label for="f-cap">上限 N</label><input id="f-cap" type="number" inputmode="numeric" v-model.number="form.max_concurrency" min="1" max="50" :disabled="activeEnv==='prod'" aria-describedby="f-cap-help"><div class="help" id="f-cap-help">{{ activeEnv==='prod' ? 'prod は 20 に固定されます' : '絶対上限 50' }}</div></div>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>3. 記録</legend>
+          <div class="field"><label for="f-name">ラン名 / メモ（任意）</label><input id="f-name" type="text" v-model="form.name" placeholder="例: N=20 の 2 回目" maxlength="80"></div>
+        </fieldset>
+        <details class="fold"><summary>詳細設定</summary><div class="fold-body">
+          <label class="check"><input type="checkbox" v-model="form.monitor"> PBX ホストを監視する（ESL / AMI、プロセス、ログ）</label>
+          <label class="check"><input type="checkbox" v-model="form.ignore_register_failure"> REGISTER 失敗を無視して開始する</label>
+        </div></details>
+        <div class="field" v-if="activeEnv==='prod'">
+          <label class="check bad"><input type="checkbox" v-model="form.confirm_prod" :aria-invalid="!!fieldErrors.confirm_prod" aria-describedby="f-prod-err" ref="prodBox"> <span class="chip prod">PROD</span> 本番環境に負荷を掛けることを確認しました</label>
+          <div class="ferr" id="f-prod-err" v-if="fieldErrors.confirm_prod">{{ fieldErrors.confirm_prod }}</div>
+        </div>
+        <div v-if="precheckRunning" class="field" aria-live="polite">
+          <div class="meta">事前チェック中… {{ precheckState.elapsed_s }} 秒（REGISTER → 1 本発信 → RTP {{ precheckState.hold_seconds }} 秒 → BYE → PBX イベント）</div>
+          <div class="progress" role="progressbar" :aria-valuenow="Math.min(100, Math.round(precheckProgress))" aria-valuemin="0" aria-valuemax="100"><i :style="{width: Math.min(100, precheckProgress) + '%'}"></i></div>
+        </div>
+        <div class="btns" style="margin-top:12px">
+          <button type="button" @click="runPrecheck" :disabled="!!busy || precheckRunning || !form.scenario" :aria-busy="busy==='precheck' || precheckRunning" aria-describedby="precheck-hint">{{ precheckRunning ? '確認中…' : '事前チェック' }}</button>
+          <button type="submit" class="primary" :disabled="!!busy || precheckRunning || !form.scenario" :aria-busy="busy==='start'"><ico name="play"></ico>{{ busy==='start' ? '開始中…' : '開始' }}</button>
+          <button type="button" class="quiet" v-if="runFinished" @click="restartSame" :disabled="!!busy">同じ設定で再実行</button>
+        </div>
+        <div class="help" id="precheck-hint">事前チェックは REGISTER・1 本の疎通・両方向の RTP・PBX 監視・プラグインを確認します（負荷は掛けません）。</div>
+      </form>
+
+      <!-- ラン中: 目標 N -->
+      <div class="panel" v-else>
+        <h2>目標 N <span class="id">上限 {{ ctl.max_concurrency }}</span><span class="chip prod" v-if="run.pbx.environment==='prod'">PROD</span></h2>
+        <div class="target"><span class="n" aria-hidden="true">{{ ctl.target }}</span><span class="cap">/ 上限 {{ ctl.max_concurrency }}</span></div>
+        <input class="slider" type="range" min="0" :max="ctl.max_concurrency" :value="ctl.target" @input="setTargetDebounced($event.target.value)" @change="setTarget($event.target.value)" aria-label="目標 N" :aria-valuetext="'目標 ' + ctl.target + '、上限 ' + ctl.max_concurrency">
+        <div class="btns">
+          <button @click="adjust(-5)" :disabled="pending==='adjust'" aria-label="目標を 5 減らす">−5</button><button @click="adjust(-1)" :disabled="pending==='adjust'" aria-label="目標を 1 減らす">−1</button>
+          <button @click="adjust(1)" :disabled="pending==='adjust'" aria-label="目標を 1 増やす">+1</button><button @click="adjust(5)" :disabled="pending==='adjust'" aria-label="目標を 5 増やす">+5</button>
+        </div>
+        <details class="fold" :open="!!ctl.schedule_step"><summary>段階実行<template v-if="ctl.schedule_step"> · ステップ {{ ctl.schedule_step.index+1 }} / {{ ctl.schedule_step.count }}</template></summary><div class="fold-body">
+          <div class="field"><label for="r-schedule">N:秒 をカンマ区切り（秒を省くと通話長）</label><div class="row"><input id="r-schedule" type="text" v-model="scheduleText" placeholder="5:180,10:180,20:180" style="flex:1;min-width:160px"><button @click="schedule" :disabled="!scheduleText || pending==='schedule'">適用</button></div></div>
+          <div class="btns" style="margin-top:8px"><button v-for="p in runPresets" :key="p" @click="preset(p)" :disabled="pending==='schedule'">プリセット {{ p }}</button><button class="quiet" v-if="ctl.schedule_step" @click="clearSchedule">スケジュールを解除</button></div>
+        </div></details>
+        <details class="fold"><summary>発信レート {{ ctl.ramp_rate }} 本/秒 · 通話長 {{ ctl.call_duration }} 秒</summary><div class="fold-body grid2">
+          <div class="field"><label for="r-ramp">発信レート（本/秒）</label><input id="r-ramp" type="number" inputmode="decimal" step="0.1" min="0.1" v-model.number="rate.ramp_rate" @change="setRate"></div>
+          <div class="field"><label for="r-dur">通話長（秒）</label><input id="r-dur" type="number" inputmode="numeric" min="1" v-model.number="rate.call_duration" @change="setRate"></div>
+        </div></details>
+        <details class="fold"><summary>一時停止 · バースト<span class="chip warn" v-if="ctl.paused">一時停止中</span><span class="chip info" v-if="ctl.burst">バースト中</span></summary><div class="fold-body">
+          <div class="row">
+            <button v-if="!ctl.paused" @click="pause" :disabled="pending==='pause'">一時停止（新規発信を止める）</button>
+            <button v-else class="primary" @click="resume" :disabled="pending==='pause'">再開</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <label for="r-burst" class="lbl" style="margin:0">バースト目標 N</label><input id="r-burst" type="number" inputmode="numeric" v-model.number="burstTarget" min="0" :max="ctl.max_concurrency" style="width:80px">
+            <button @click="burst" :disabled="pending==='burst'">バースト</button>
+          </div>
+          <div class="help">バーストは発信レートの制限を外し、目標 N まで一気に発信します。</div>
+        </div></details>
       </div>
-      <div class="grid2" style="margin-top:10px">
+
+      <div class="panel" v-if="run && extList.length">
+        <h2>応答内線</h2>
+        <div class="exts">
+          <template v-for="e in extList" :key="e.user">
+            <span class="mono">{{ e.user }}</span>
+            <span class="bar" :class="{full: e.active >= e.max_calls}" role="img" :aria-label="e.user + ' 稼働 ' + e.active + ' / ' + e.max_calls"><i :style="{width: (e.max_calls ? Math.min(100, e.active / e.max_calls * 100) : 0) + '%'}"></i></span>
+            <span class="mono num">{{ e.active }} / {{ e.max_calls }}</span>
+            <span><span class="chip" :class="e.state==='registered' ? 'ok' : (e.state==='unregistered' ? '' : 'bad')">{{ {registered: '登録済', unregistered: '解除済', registering: '登録中', failed: '失敗'}[e.state] || e.state }}</span><span class="chip warn" v-if="e.busy_rejects" :title="'486 を返した回数'">486 × {{ e.busy_rejects }}</span></span>
+          </template>
+        </div>
+      </div>
+
+      <div class="panel" v-if="run">
+        <h2>イベント <span class="sub">新しい順</span></h2>
+        <div class="events" v-if="eventsDesc.length"><div v-for="(e, i) in eventsDesc" :key="i"><span class="t">{{ mmss(e.t) }}</span><span class="k" :class="kindOf(e)">{{ kindOf(e) }}</span><span class="msg">{{ e.message }}</span></div></div>
+        <p class="empty" v-else>まだイベントはありません。</p>
+      </div>
+
+      <div class="panel danger-zone" v-if="runActive">
+        <h4>危険な操作</h4>
+        <div class="btns"><button class="danger outline" @click="hangupAll" :disabled="pending==='hangup'">全通話を切る</button><button class="danger" @click="stopRun" :disabled="busy==='stop'" :aria-busy="busy==='stop'"><ico name="stop"></ico>{{ busy==='stop' ? '停止中…' : 'ランを停止' }}</button></div>
+        <small>どちらも対象（{{ run.pbx.host }} · {{ run.pbx.environment }}）と現在の確立数を示す確認ダイアログを経由します。</small>
+      </div>
+
+      <div class="panel" v-if="!run && !precheckRunning">
+        <h2>PBX 接続テスト</h2>
+        <div class="row"><span class="meta">{{ resolved.profileName || 'プロファイルなし' }}</span><button class="sm" @click="testProfile(resolved.profileName)" :disabled="!resolved.profileName || busy==='test'" :aria-busy="busy==='test'">接続テスト</button></div>
+        <div v-if="profileTest" class="meta" style="margin-top:8px" :class="{bad: !profileTest.ok}" role="status">
+          <template v-if="profileTest.ok"><b>{{ profileTest.name }}</b>: {{ profileTest.connect_ms }} ms で接続（{{ profileTest.adapter.executor.kind }}, {{ profileTest.adapter.esl }}）· {{ profileTest.status.version }} · max-sessions {{ profileTest.status.sessions_max }} · channels {{ profileTest.channels }} · 登録 {{ profileTest.registrations.join(', ') || 'なし' }}</template>
+          <template v-else>{{ profileTest.name }}: 接続できません。{{ profileTest.error }}</template>
+        </div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <!-- ラン前: 解決結果と事前チェック -->
+      <template v-if="!run">
+        <div class="panel">
+          <h2>この設定で実行します</h2>
+          <div class="kv" v-if="selectedScenario && !selectedScenario.error">
+            <span><small>PBX</small><span class="mono">{{ resolved.host }}</span><span class="muted">{{ resolved.domain }}</span><span class="chip prod" v-if="resolved.env==='prod'">PROD</span><span class="chip" v-else>{{ resolved.env || '-' }}</span></span>
+            <span><small>プロファイル</small><span class="mono">{{ resolved.profileName || 'なし' }}</span><span class="muted" v-if="resolved.executor">({{ resolved.executor }})</span></span>
+            <span><small>監視</small>{{ form.monitor && resolved.profileName ? 'あり' : 'なし' }}</span>
+            <span><small>上限 N</small><b>{{ effectiveCap }}</b><span class="chip prod" v-if="resolved.env==='prod'">prod 固定</span></span>
+            <span><small>実行</small>{{ modeText }}</span>
+            <span><small>発信</small><span class="mono">{{ resolved.caller }}</span></span>
+            <span><small>応答</small><span class="mono">{{ resolved.answerers || 'なし' }}</span></span>
+            <span v-if="resolved.plugins"><small>プラグイン</small><span class="mono">{{ resolved.plugins }}</span></span>
+            <span v-if="resolved.secrets.length"><small>秘密情報</small><span class="mono">{{ resolved.secrets.join(', ') }}</span><span class="muted">（名前のみ。値は事前チェックで解決）</span></span>
+          </div>
+          <p class="empty" v-else-if="selectedScenario && selectedScenario.error">シナリオを読み込めません: {{ selectedScenario.error }}</p>
+          <p class="empty" v-else>シナリオを選ぶとここに解決結果が出ます。</p>
+        </div>
+        <div class="panel">
+          <h2>事前チェック <span class="sub" v-if="precheckResult">· {{ precheckResult.ok ? '合格' : 'NG ' + precheckNg + ' 件' }}（{{ precheckResult.elapsed_s }} 秒）</span><span class="sub" v-else-if="!precheckRunning">· 未実施</span></h2>
+          <div v-if="precheckResult" role="status">
+            <div class="table-wrap"><table>
+              <thead><tr><th scope="col">結果</th><th scope="col">項目</th><th scope="col">詳細</th></tr></thead>
+              <tbody><tr v-for="i in precheckResult.items" :key="i.name" :class="{ng: !i.ok}"><td><ico :name="i.ok ? 'check' : 'x-circle'" :class="i.ok ? 'ok' : 'bad'"></ico><span class="sr-only">{{ i.ok ? 'OK' : 'NG' }}</span></td><td>{{ i.name }}</td><td class="mono wrap">{{ i.detail }}</td></tr></tbody>
+            </table></div>
+          </div>
+          <div class="placeholder" v-else>{{ precheckRunning ? '確認しています…' : '「事前チェック」を押すと結果がここに並びます。' }}</div>
+        </div>
+        <div class="panel">
+          <h2>最近のラン <span class="sub">· <a href="#results" @click.prevent="setTab('results')">結果タブへ</a></span></h2>
+          <div class="table-wrap" v-if="recentRuns.length"><table>
+            <thead><tr><th scope="col">#</th><th scope="col">名前</th><th scope="col" class="hide-sm">開始</th><th scope="col" class="num">発信</th><th scope="col" class="num">失敗</th><th scope="col" class="num">p95 →200 (ms)</th><th scope="col"></th></tr></thead>
+            <tbody><tr v-for="r in recentRuns" :key="r.id"><td class="mono">{{ r.id }}</td><td class="mono">{{ r.name }}</td><td class="mono hide-sm">{{ ts(r.started_at) }}</td><td class="num">{{ r.summary ? r.summary.calls_started : '–' }}</td><td class="num" :class="{bad: r.summary && r.summary.calls_failed}">{{ r.summary ? r.summary.calls_failed : '–' }}</td><td class="num">{{ r.summary ? fmt(r.summary.invite_to_200_ms.p95, 1) : '–' }}</td><td><button class="sm" @click="openRun(r.id)" :aria-label="'ラン ' + r.id + ' の詳細'">詳細</button></td></tr></tbody>
+          </table></div>
+          <p class="empty" v-else>まだランがありません。左のフォームで「開始」するとここに並びます。</p>
+        </div>
+      </template>
+
+      <!-- ラン中 / ラン後 -->
+      <template v-else>
+        <div class="banner" v-if="runFinished" role="status">
+          <ico name="check" class="ok"></ico>
+          <span class="grow">ラン <b class="mono">#{{ run.run_id || '-' }} {{ run.name }}</b> が終了しました（{{ mmss(run.stats.elapsed_s) }}、発信 {{ run.stats.calls_started }} / 確立 {{ run.stats.calls_established }} / 失敗 {{ run.stats.calls_failed }}）。</span>
+          <button class="primary sm" @click="openRun(run.run_id)" :disabled="!run.run_id">結果を見る</button>
+          <a class="btn sm" :href="'/api/runs/export.xlsx?ids=' + (run.run_id || '')" v-if="run.run_id">記録表 xlsx</a>
+          <button class="sm" @click="restartSame" :disabled="!!busy">同じ設定で再実行</button>
+        </div>
+        <div class="statusbar" v-else>
+          <span><span class="big">{{ ctl.target }}</span> <span class="muted">目標</span></span><span class="sep" aria-hidden="true"></span>
+          <span>確立 <b>{{ ctl.established }}</b></span><span>接続中 <b>{{ ctl.pending }}</b></span><span>失敗 <b :class="{bad: run.stats.calls_failed>0}">{{ run.stats.calls_failed }}</b></span><span class="sep" aria-hidden="true"></span>
+          <span>経過 <b>{{ mmss(run.stats.elapsed_s) }}</b></span>
+          <span v-if="ctl.schedule_step">ステップ <b>{{ ctl.schedule_step.index+1 }} / {{ ctl.schedule_step.count }}</b> N={{ ctl.schedule_step.target }} 残り <b>{{ Math.max(0, Math.round(ctl.schedule_step.seconds - ctl.schedule_step.elapsed)) }} s</b><template v-if="nextStep"> → 次 N={{ nextStep.target }}</template></span>
+          <span class="chip warn" v-if="ctl.paused">一時停止中</span><span class="chip info" v-if="ctl.burst">バースト中</span>
+          <span class="chip bad" v-if="ctl.backoff_reason" :title="ctl.backoff_reason"><ico name="warning"></ico>自動減少</span>
+          <span class="chip warn" v-if="busyRejects">486 × {{ busyRejects }}</span>
+        </div>
+
+        <div class="tiles">
+          <div class="tile" :data-state="run.stats.invite_to_200_ms.n ? 'ok' : null"><div class="k">INVITE→200 p50 / p95</div><div class="v">{{ fmt(run.stats.invite_to_200_ms.p50, 1) }}<small>/ {{ fmt(run.stats.invite_to_200_ms.p95, 1) }} ms</small></div><div class="sub">max {{ fmt(run.stats.invite_to_200_ms.max, 1) }} ms · n={{ run.stats.invite_to_200_ms.n }}</div></div>
+          <div class="tile"><div class="k">INVITE→180 p50 / p95</div><div class="v">{{ fmt(run.stats.invite_to_180_ms.p50, 1) }}<small>/ {{ fmt(run.stats.invite_to_180_ms.p95, 1) }} ms</small></div><div class="sub">同時鳴動の窓を含む</div></div>
+          <div class="tile" :data-state="run.stats.rtp.late_max_ms > 5 ? 'warn' : null"><div class="k">RTP 送出遅れ 最大</div><div class="v">{{ fmt(run.stats.rtp.late_max_ms, 2) }}<small>ms</small></div><div class="sub">5 ms 超 {{ n(run.stats.rtp.late_over_5ms) }} 件 · 欠落 {{ n(run.stats.rtp.rx_lost) }}</div></div>
+          <div class="tile"><div class="k">発信 / 終了 · calls/s</div><div class="v">{{ n(run.stats.calls_started) }}<small>/ {{ n(run.stats.calls_ended) }} · {{ fmt(run.stats.cps, 1) }}</small></div><div class="sub">レート {{ ctl.ramp_rate }} 本/秒 · 通話長 {{ ctl.call_duration }} 秒</div></div>
+          <div class="tile" :data-state="run.stats.calls_failed ? 'bad' : null"><div class="k">失敗</div><div class="v">{{ n(run.stats.calls_failed) }}<small>件</small></div><div class="sub">{{ failText }}</div></div>
+          <div class="tile" :data-state="busyRejects ? 'warn' : null"><div class="k">応答側 486</div><div class="v">{{ n(busyRejects) }}<small>件</small></div><div class="sub">{{ answeredText }}</div></div>
+          <div class="tile" v-if="mon.last && mon.last.channels != null" :data-state="monStale ? 'stale' : null"><div class="k">PBX channels</div><div class="v">{{ n(mon.last.channels) }}<small>本</small></div><div class="sub">{{ monStale ? monAge + ' 前の値' : '最終取得 ' + ago(mon.last.wall) }}</div></div>
+        </div>
+
+        <div class="panel">
+          <h2>同時数 <span class="sub">目標 / 確立 / 接続中<template v-if="mon.series && mon.series.length"> / PBX channels</template> · RTP 遅れ</span><span class="spread sub" v-if="seriesTruncated">直近 15 分（全体 {{ mmss(run.stats.elapsed_s) }}）</span></h2>
+          <div class="chart" ref="chartEl" role="img" :aria-label="chartSummary"></div>
+          <div class="chart-meta"><span>更新 {{ updateInterval }} 秒</span><label class="check" style="margin:0;font-size:inherit"><input type="checkbox" v-model="updatePaused"> 更新を一時停止</label><span>間隔 <select v-model.number="updateInterval" aria-label="更新間隔" style="width:auto;min-height:24px;padding:0 4px"><option :value="0.5">0.5 s</option><option :value="1">1 s</option><option :value="2">2 s</option></select></span><span v-if="reducedMotion">reduced-motion のため 2 秒に落としています</span></div>
+        </div>
+
+        <div class="panel">
+          <h2>通話 <span class="id">{{ run.calls.length }}</span><span class="sub">· 直近 60 件まで</span>
+            <span class="spread row" style="gap:4px"><button class="sm" :class="{primary: callsFilter==='all'}" @click="callsFilter='all'" :aria-pressed="callsFilter==='all'">すべて</button><button class="sm" :class="{primary: callsFilter==='active'}" @click="callsFilter='active'" :aria-pressed="callsFilter==='active'">進行中</button><button class="sm" :class="{primary: callsFilter==='failed'}" @click="callsFilter='failed'" :aria-pressed="callsFilter==='failed'">失敗</button></span></h2>
+          <div class="table-wrap scroll" v-if="callsView.length"><table>
+            <thead><tr>
+              <th scope="col">id</th><th scope="col">状態</th><th scope="col" class="hide-sm">宛先</th>
+              <th scope="col" class="num" :aria-sort="sortState(callsSort,'to200_ms')"><button class="sort" @click="sortCalls('to200_ms')">→200 (ms)</button></th>
+              <th scope="col" class="num hide-sm" :aria-sort="sortState(callsSort,'duration_s')"><button class="sort" @click="sortCalls('duration_s')">通話 (s)</button></th>
+              <th scope="col" class="num hide-sm">tx / rx</th><th scope="col" class="num hide-sm">欠落</th>
+              <th scope="col" class="num" :aria-sort="sortState(callsSort,'late_max_ms')"><button class="sort" @click="sortCalls('late_max_ms')">遅れ max (ms)</button></th>
+              <th scope="col">終了理由</th>
+            </tr></thead>
+            <tbody><tr v-for="c in callsView" :key="c.id"><td class="mono" :title="c.id">{{ c.id.slice(0, 8) }}</td><td><span class="tag" :class="c.state">{{ stateLabel(c) }}</span></td><td class="mono hide-sm">{{ c.remote }}</td><td class="num mono">{{ fmt(c.to200_ms, 1) }}</td><td class="num mono hide-sm">{{ fmt(c.duration_s, 1) }}</td><td class="num mono hide-sm">{{ n(c.tx) }} / {{ n(c.rx) }}</td><td class="num mono hide-sm" :class="{bad: c.lost}">{{ n(c.lost) }}</td><td class="num mono" :class="{warn: c.late_max_ms > 5}">{{ fmt(c.late_max_ms, 2) }}</td><td>{{ c.reason || '' }}<span class="muted" v-if="c.status"> ({{ c.status }})</span></td></tr></tbody>
+          </table></div>
+          <p class="empty" v-else>{{ run.calls.length ? '条件に合う通話はありません。' : 'まだ通話はありません。' }}</p>
+        </div>
+
+        <div class="panel" v-if="run.monitor">
+          <h2>PBX ホスト <span class="id" v-if="run.pbx_profile">{{ run.pbx_profile.name }} ({{ run.pbx_profile.executor }})</span><span class="sub" v-if="mon.adapter">· {{ mon.adapter.esl }}</span><span class="sub" v-if="mon.last && mon.last.wall">· 最終取得 {{ hhmmss(mon.last.wall) }}（{{ mon.interval }} 秒間隔 · {{ n(mon.samples) }} samples）</span><span class="chip warn" v-if="monStale">stale · {{ monAge }} 前</span></h2>
+          <div v-if="mon.error" class="band bad" style="border:0;border-radius:6px" role="alert"><ico name="x-circle"></ico><span class="grow">監視を開始できません: {{ mon.error }}</span></div>
+          <template v-else>
+            <div class="kv">
+              <span><b>{{ fmt(mon.last.channels) }}</b><small>channels</small></span>
+              <span><b>{{ fmt(mon.last.cpu, 1) }}</b><small>{{ processLabel }} %CPU（区間 / ps 平均 {{ fmt(mon.last.cpu_avg, 1) }}）</small></span>
+              <span><b>{{ fmt(mon.last.nlwp) }}</b><small>threads</small></span>
+              <span><b>{{ fmt(mon.last.mem, 1) }}</b><small>%MEM · {{ mon.last.rss_kb ? Math.round(mon.last.rss_kb / 1024) : '–' }} MB</small></span>
+              <span class="chip" :class="(mon.log_level_counts.ERR||0)+(mon.log_level_counts.CRIT||0) > 0 ? 'bad' : ((mon.log_level_counts.WARNING||0) > 0 ? 'warn' : 'ok')"><ico :name="(mon.log_level_counts.ERR||0)+(mon.log_level_counts.CRIT||0) > 0 ? 'x-circle' : 'check'"></ico>ログ WARN {{ n(mon.log_level_counts.WARNING||0) }} · ERR {{ n(mon.log_level_counts.ERR||0) }} · CRIT {{ n(mon.log_level_counts.CRIT||0) }}</span>
+            </div>
+            <div class="chart" ref="mchartEl" style="margin-top:12px" role="img" :aria-label="processLabel + ' の %CPU とスレッド数の推移'"></div>
+            <div class="grid2" style="margin-top:12px">
+              <div v-if="Object.keys(mon.esl_events||{}).length"><h4>ESL / AMI イベント</h4><div class="table-wrap"><table><tbody><tr v-for="(v,k) in mon.esl_events" :key="k"><th scope="row" class="mono">{{ k.replace('CHANNEL_','') }}</th><td class="num mono">{{ n(v) }}</td></tr></tbody></table></div></div>
+              <div v-if="Object.keys(mon.hangup_causes||{}).length"><h4>PBX 側の切断理由</h4><div class="table-wrap"><table><tbody><tr v-for="(v,k) in mon.hangup_causes" :key="k"><th scope="row" class="mono">{{ k }}</th><td class="num mono">{{ n(v) }}</td></tr></tbody></table></div></div>
+              <div v-if="Object.keys(customMetrics).length"><h4>監視コマンド</h4><div class="table-wrap"><table><tbody><tr v-for="(v,k) in customMetrics" :key="k"><th scope="row" class="mono">{{ k }}</th><td class="num mono">{{ fmt(v) }}</td></tr></tbody></table></div></div>
+            </div>
+            <details class="fold"><summary>スレッド別 %CPU · 上位スレッド</summary><div class="fold-body grid2">
+              <div class="table-wrap"><table><thead><tr><th scope="col">name</th><th scope="col" class="num">count</th><th scope="col" class="num">%CPU</th></tr></thead><tbody><tr v-for="(v,k) in mon.threads_by_name" :key="k"><td class="mono">{{ k }}</td><td class="num mono">{{ v.count }}</td><td class="num mono">{{ v.cpu }}</td></tr></tbody></table></div>
+              <div class="table-wrap"><table><thead><tr><th scope="col">tid</th><th scope="col" class="num">%CPU</th><th scope="col">name</th></tr></thead><tbody><tr v-for="t in mon.top_threads.slice(0, 8)" :key="t.tid"><td class="mono">{{ t.tid }}</td><td class="num mono">{{ t.cpu }}</td><td class="mono">{{ t.name }}</td></tr></tbody></table></div>
+            </div></details>
+            <details class="fold"><summary>ログ tail · 直近 {{ mon.log_tail.length }} / 累計 {{ n(mon.log_lines_total) }} 行</summary><div class="fold-body">
+              <label class="check"><input type="checkbox" v-model="logWarnOnly"> WARNING 以上だけ表示</label>
+              <div class="log" v-if="logView.length"><div v-for="(l, i) in logView" :key="i" :class="levelOf(l)">{{ l }}</div></div>
+              <p class="empty" v-else>該当する行はありません。</p>
+            </div></details>
+            <div v-if="mon.errors && mon.errors.length" class="band warn" style="border:0;border-radius:6px;margin-top:8px" role="status"><ico name="warning"></ico><span class="grow">{{ mon.errors.join(' / ') }}</span></div>
+          </template>
+        </div>
+
+        <div class="panel" v-if="Object.keys(run.plugins||{}).length">
+          <details class="fold" style="border:0;margin:0;padding:0"><summary>プラグイン · {{ Object.keys(run.plugins).join(', ') }}</summary><div class="fold-body grid2">
+            <div v-for="(p, name) in run.plugins" :key="name">
+              <h4><span class="mono">{{ name }}</span> <span class="muted">{{ p.class }}</span></h4>
+              <div class="table-wrap"><table><tbody><tr v-for="(v,k) in flatten(p)" :key="k"><th scope="row" class="mono">{{ k }}</th><td class="mono wrap">{{ typeof v === 'object' ? JSON.stringify(v) : v }}</td></tr></tbody></table></div>
+              <div v-if="p.errors && p.errors.length" class="ferr">{{ p.errors.join(' / ') }}</div>
+            </div>
+          </div></details>
+        </div>
+      </template>
+    </div>
+  </main>
+
+  <!-- ===================== シナリオ ===================== -->
+  <main v-show="tab==='scenarios'" class="one">
+    <div class="panel">
+      <h2>シナリオ</h2>
+      <p class="meta path" :title="scenarioDir"><span>{{ scenarioDir }}</span></p>
+      <div class="row" style="margin-top:8px">
+        <label for="s-file" class="sr-only">編集するシナリオ</label>
+        <select id="s-file" v-model="editor.file" @change="loadScenarioText" style="width:auto;min-width:200px;flex:1"><option v-for="s in scenarios" :key="s.file" :value="s.file">{{ s.file }}</option></select>
+        <label for="s-new" class="sr-only">新しいシナリオ名</label>
+        <input id="s-new" type="text" v-model="editor.newName" placeholder="新しいシナリオ名" style="width:200px">
+        <button @click="createScenario" :disabled="!editor.newName.trim() || busy==='scenario'">選択中をコピーして作成</button>
+        <button class="danger outline" @click="deleteScenario" :disabled="!editor.file">削除</button>
+      </div>
+      <p class="empty" v-if="!scenarios.length">{{ scenarioDir }} に YAML がありません。名前を入れて「作成」すると雛形から作れます。</p>
+      <div class="editor" style="margin-top:12px" v-else>
         <div>
-          <label>YAML（保存時に検証）</label>
-          <textarea v-model="editor.text" class="mono" style="width:100%;height:520px;font-size:12px" spellcheck="false"></textarea>
-          <div class="row"><button class="primary" @click="saveScenario" :disabled="!editor.file">保存</button><span v-if="editor.msg" :class="{bad: editor.bad}">{{ editor.msg }}</span></div>
+          <label for="s-yaml">YAML（保存時に検証します）</label>
+          <textarea id="s-yaml" v-model="editor.text" spellcheck="false" ref="yamlEl" :aria-invalid="editor.bad" aria-describedby="s-msg"></textarea>
+          <div class="btns" style="margin-top:8px"><button class="primary" @click="saveScenario" :disabled="!editor.file || busy==='scenario'" :aria-busy="busy==='scenario'">保存</button></div>
+          <div class="msg" id="s-msg" :class="{bad: editor.bad}" v-if="editor.msg" :role="editor.bad ? 'alert' : 'status'">{{ editor.msg }}</div>
         </div>
-        <div style="font-size:12.5px">
-          <b>解釈結果</b>
-          <table v-if="editor.parsed">
-            <tr><td>name</td><td>{{ editor.parsed.name }}</td></tr>
-            <tr><td>pbx_profile</td><td>{{ editor.parsed.pbx_profile || '-' }}</td></tr>
-            <tr><td>pbx</td><td class="mono">{{ JSON.stringify(editor.parsed.pbx || {}) }}</td></tr>
-            <tr><td>caller</td><td class="mono">{{ editor.parsed.caller ? (editor.parsed.caller.auth_user + ' → ' + editor.parsed.caller.destination) : '-' }}</td></tr>
-            <tr><td>headers</td><td class="mono">{{ JSON.stringify((editor.parsed.caller||{}).headers || {}) }}</td></tr>
-            <tr><td>steps</td><td class="mono">{{ JSON.stringify((editor.parsed.caller||{}).steps || []) }}</td></tr>
-            <tr><td>answerer</td><td class="mono">{{ ((editor.parsed.answerer||{}).extensions||[]).map(e=>e.user+'('+e.max_calls+')').join(', ') }}</td></tr>
-            <tr><td>load</td><td class="mono">{{ JSON.stringify(editor.parsed.load || {}) }}</td></tr>
-            <tr><td>plugins</td><td class="mono">{{ Object.keys(editor.parsed.plugins || {}).join(', ') || '-' }}</td></tr>
-            <tr><td>monitor</td><td class="mono">{{ ((editor.parsed.monitor||{}).commands||[]).map(c=>c.name).join(', ') || '-' }}</td></tr>
-          </table>
-          <p style="color:var(--muted)">パスワードは <span class="mono">secret:NAME</span> の参照で書きます（環境変数 SEMISHIGURE_SECRET_NAME か <span class="mono">semishigure secret set</span>）。</p>
+        <div>
+          <h3 style="font-size:13px;font-weight:600;margin-bottom:6px">解釈結果</h3>
+          <div class="table-wrap" v-if="editor.parsed"><table class="rows">
+            <tbody>
+              <tr><th scope="row">name</th><td>{{ editor.parsed.name }}</td></tr>
+              <tr><th scope="row">pbx_profile</th><td>{{ editor.parsed.pbx_profile || '-' }}</td></tr>
+              <tr><th scope="row">pbx</th><td>{{ JSON.stringify(editor.parsed.pbx || {}) }}</td></tr>
+              <tr><th scope="row">caller</th><td>{{ editor.parsed.caller ? (editor.parsed.caller.auth_user + ' → ' + editor.parsed.caller.destination) : '-' }}</td></tr>
+              <tr><th scope="row">headers</th><td>{{ JSON.stringify((editor.parsed.caller||{}).headers || {}) }}</td></tr>
+              <tr><th scope="row">steps</th><td>{{ JSON.stringify((editor.parsed.caller||{}).steps || []) }}</td></tr>
+              <tr><th scope="row">answerer</th><td>{{ ((editor.parsed.answerer||{}).extensions||[]).map(e=>e.user+'('+e.max_calls+')').join(', ') }}</td></tr>
+              <tr><th scope="row">load</th><td>{{ JSON.stringify(editor.parsed.load || {}) }}</td></tr>
+              <tr><th scope="row">plugins</th><td>{{ Object.keys(editor.parsed.plugins || {}).join(', ') || '-' }}</td></tr>
+              <tr><th scope="row">monitor</th><td>{{ ((editor.parsed.monitor||{}).commands||[]).map(c=>c.name).join(', ') || '-' }}</td></tr>
+            </tbody>
+          </table></div>
+          <p class="meta" style="margin-top:8px">パスワードは <code>secret:NAME</code> の参照で書きます（環境変数 <code>SEMISHIGURE_SECRET_NAME</code> か <code>semishigure secret set</code>）。</p>
         </div>
       </div>
     </div>
   </main>
-  <main v-show="tab==='profiles'" style="grid-template-columns: 1fr">
-    <div class="panel">
-      <h2>PBX profiles <span style="font-weight:400;text-transform:none">({{ profilesPath }})</span></h2>
-      <div class="row">
-        <select v-model="pform.name" @change="loadProfileForm"><option value="">(新規)</option><option v-for="p in profiles" :value="p.name">{{ p.name }}</option></select>
-        <button class="danger" @click="deleteProfile" :disabled="!pform.name">削除</button>
-        <button @click="testProfile(pform.name)" :disabled="!pform.name || busy">Test</button>
+
+  <!-- ===================== PBX ===================== -->
+  <main v-show="tab==='profiles'" class="one">
+    <form class="panel" @submit.prevent="saveProfile" novalidate>
+      <h2>PBX プロファイル</h2>
+      <p class="meta path" :title="profilesPath"><span>{{ profilesPath }}</span></p>
+      <div class="row" style="margin-top:8px">
+        <label for="p-sel" class="sr-only">編集するプロファイル</label>
+        <select id="p-sel" v-model="pform.name" @change="loadProfileForm" style="width:auto;min-width:200px"><option value="">（新規）</option><option v-for="p in profiles" :key="p.name" :value="p.name">{{ p.name }}</option></select>
+        <button type="button" @click="testProfile(pform.name)" :disabled="!pform.name || busy==='test'" :aria-busy="busy==='test'">接続テスト</button>
+        <button type="button" class="danger outline" @click="deleteProfile" :disabled="!pform.name">削除</button>
       </div>
-      <div class="tiles" style="margin-top:10px;grid-template-columns: repeat(auto-fit, minmax(260px, 1fr))">
-        <div v-for="f in profileFields" :key="f">
-          <label>{{ f }} <span v-if="f==='name' && !pform.name">(必須)</span></label>
-          <input v-if="typeof pform.values[f] === 'boolean'" type="checkbox" v-model="pform.values[f]">
-          <select v-else-if="f==='type'" v-model="pform.values[f]"><option>freeswitch</option><option>asterisk</option></select>
-          <select v-else-if="f==='executor'" v-model="pform.values[f]"><option>local</option><option>ssh</option></select>
-          <select v-else-if="f==='sip_transport'" v-model="pform.values[f]"><option>udp</option><option>tcp</option><option>tls</option></select>
-          <textarea v-else-if="f==='extra'" v-model="pform.values[f]" class="mono" style="height:60px"></textarea>
-          <input v-else type="text" v-model="pform.values[f]" :placeholder="f.includes('_ref') ? 'secret:NAME' : ''">
+      <fieldset v-for="g in profileGroups" :key="g.title" v-show="!g.when || g.when(pform.values)">
+        <legend>{{ g.title }}</legend>
+        <div class="grid2">
+          <div class="field" v-for="f in g.fields" :key="f">
+            <label :for="'pf-' + f">{{ f }}<span class="req" v-if="f==='name'" aria-hidden="true">*</span></label>
+            <label class="check" v-if="typeof pform.values[f] === 'boolean'" :for="'pf-' + f" style="margin:0"><input type="checkbox" :id="'pf-' + f" v-model="pform.values[f]"> {{ pform.values[f] ? '有効' : '無効' }}</label>
+            <select v-else-if="f==='type'" :id="'pf-' + f" v-model="pform.values[f]"><option>freeswitch</option><option>asterisk</option></select>
+            <select v-else-if="f==='executor'" :id="'pf-' + f" v-model="pform.values[f]"><option>local</option><option>ssh</option></select>
+            <select v-else-if="f==='sip_transport'" :id="'pf-' + f" v-model="pform.values[f]"><option>udp</option><option>tcp</option><option>tls</option></select>
+            <select v-else-if="f==='environment'" :id="'pf-' + f" v-model="pform.values[f]"><option>dev</option><option>staging</option><option>prod</option></select>
+            <textarea v-else-if="f==='extra'" :id="'pf-' + f" v-model="pform.values[f]" class="mono" style="min-height:60px" :aria-describedby="'pf-help-' + f"></textarea>
+            <input v-else-if="numericFields.includes(f)" type="number" inputmode="numeric" :id="'pf-' + f" v-model="pform.values[f]" :aria-describedby="'pf-help-' + f">
+            <input v-else type="text" :id="'pf-' + f" v-model="pform.values[f]" :placeholder="f.includes('_ref') ? 'secret:NAME' : ''" :required="f==='name'" :aria-required="f==='name'" :aria-invalid="f==='name' && !!fieldErrors.pname" :aria-describedby="'pf-help-' + f">
+            <div class="help" :id="'pf-help-' + f" v-if="profileHelp[f]">{{ profileHelp[f] }}</div>
+            <div class="ferr" v-if="f==='name' && fieldErrors.pname">{{ fieldErrors.pname }}</div>
+          </div>
         </div>
+      </fieldset>
+      <div class="btns" style="margin-top:12px"><button type="submit" class="primary" :disabled="busy==='profile'" :aria-busy="busy==='profile'">保存</button></div>
+      <div class="msg" v-if="pform.msg" :class="{bad: pform.bad}" :role="pform.bad ? 'alert' : 'status'" style="margin-top:8px;font-size:12px;padding:8px 12px;border-radius:6px;white-space:pre-wrap" :style="pform.bad ? 'background:var(--bad-bg);color:var(--bad-fg)' : 'background:var(--ok-bg);color:var(--ok-fg)'">{{ pform.msg }}</div>
+      <div v-if="profileTest" class="meta" style="margin-top:8px" :class="{bad: !profileTest.ok}" role="status">
+        <template v-if="profileTest.ok">
+          <b>{{ profileTest.name }}</b>: {{ profileTest.connect_ms }} ms で接続（{{ profileTest.adapter.executor.kind }}, {{ profileTest.adapter.esl }}）<br>
+          {{ profileTest.status.version }} · 稼働 {{ profileTest.status.uptime }}<br>
+          sessions {{ profileTest.status.sessions }}（peak {{ profileTest.status.sessions_peak }}）· max-sessions <b>{{ profileTest.status.sessions_max }}</b> · sessions-per-second <b>{{ profileTest.status.sps_max }}</b> · channels {{ profileTest.channels }}<br>
+          プロセス pid {{ profileTest.process.pid }} · cpu {{ profileTest.process.cpu }}% · mem {{ profileTest.process.mem }}% · threads {{ profileTest.process.threads }}<br>
+          登録: {{ profileTest.registrations.join(', ') || 'なし' }}
+        </template>
+        <template v-else>{{ profileTest.name }}: 接続できません。{{ profileTest.error }}</template>
       </div>
-      <div class="row" style="margin-top:10px"><button class="primary" @click="saveProfile">保存</button><span v-if="pform.msg" :class="{bad: pform.bad}">{{ pform.msg }}</span></div>
-      <div v-if="profileTest" style="margin-top:8px;font-size:12px" :class="{bad: !profileTest.ok}">
-        <template v-if="profileTest.ok"><b>{{ profileTest.name }}</b>: connected in {{ profileTest.connect_ms }} ms via {{ profileTest.adapter.executor.kind }}, {{ profileTest.adapter.esl }} · {{ profileTest.status.version }} · max-sessions {{ profileTest.status.sessions_max }} · channels {{ profileTest.channels }} · registrations {{ profileTest.registrations.join(', ') || '(none)' }}</template>
-        <template v-else>{{ profileTest.name }}: {{ profileTest.error }}</template>
-      </div>
-    </div>
+    </form>
   </main>
-  <main v-show="tab==='results'" style="grid-template-columns: 1fr">
-    <div class="panel">
-      <h2>Results <span style="font-weight:400;text-transform:none">· <a :href="'/api/runs/export.xlsx?ids=' + selectedRuns.join(',')">記録表 xlsx（{{ selectedRuns.length ? '選択 ' + selectedRuns.length + ' 件' : '最新 10 件' }}）</a></span></h2>
-      <table>
-        <tr><th></th><th>id</th><th>name</th><th>scenario</th><th>pbx</th><th>started</th><th>calls</th><th>failed</th><th>p95 →200</th><th>RTP late max</th><th></th></tr>
-        <tr v-for="r in runs"><td><input type="checkbox" :value="r.id" v-model="selectedRuns"></td><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.scenario_name }}</td><td>{{ r.pbx.host }}</td><td>{{ ts(r.started_at) }}</td><td>{{ r.summary ? r.summary.calls_started : '-' }}</td><td>{{ r.summary ? r.summary.calls_failed : '-' }}</td><td>{{ r.summary ? fmt(r.summary.invite_to_200_ms.p95) : '-' }}</td><td>{{ r.summary ? r.summary.rtp.late_max_ms : '-' }}</td><td><button @click="openRun(r.id)">詳細</button></td></tr>
-      </table>
-      <div v-if="detail" style="margin-top:12px">
-        <h2>#{{ detail.id }} {{ detail.name }} · {{ ts(detail.started_at) }} → {{ ts(detail.finished_at) }}</h2>
+
+  <!-- ===================== 結果 ===================== -->
+  <main v-show="tab==='results'" class="one">
+    <div class="stack">
+      <div class="panel">
+        <h2>結果 <span class="sub">· {{ runs.length }} 件</span></h2>
+        <div class="actionbar">
+          <label for="r-q" class="sr-only">ラン名・シナリオで検索</label>
+          <input id="r-q" type="search" v-model="runsQuery" placeholder="名前・シナリオで絞り込み" style="width:220px">
+          <span class="muted" v-if="selectedRuns.length">{{ selectedRuns.length }} 件選択</span>
+          <a class="btn sm" :href="'/api/runs/export.xlsx?ids=' + selectedRuns.join(',')">記録表 xlsx（{{ selectedRuns.length ? selectedRuns.length + ' 件' : '最新 10 件' }}）</a>
+          <button class="sm" @click="compareRuns" :disabled="selectedRuns.length < 2">並べて比較（{{ selectedRuns.length }} 件）</button>
+          <button class="sm quiet" v-if="selectedRuns.length" @click="selectedRuns=[]">選択解除</button>
+        </div>
+        <div class="table-wrap" v-if="runsView.length"><table>
+          <thead><tr>
+            <th scope="col"><span class="sr-only">選択</span></th>
+            <th scope="col" :aria-sort="sortState(runsSort,'id')"><button class="sort" @click="sortRuns('id')">#</button></th>
+            <th scope="col" :aria-sort="sortState(runsSort,'name')"><button class="sort" @click="sortRuns('name')">名前</button></th>
+            <th scope="col" class="hide-sm">シナリオ</th><th scope="col" class="hide-sm">PBX</th>
+            <th scope="col" :aria-sort="sortState(runsSort,'started_at')"><button class="sort" @click="sortRuns('started_at')">開始</button></th>
+            <th scope="col" class="num">発信</th><th scope="col" class="num">失敗</th>
+            <th scope="col" class="num" :aria-sort="sortState(runsSort,'p95')"><button class="sort" @click="sortRuns('p95')">p95 →200 (ms)</button></th>
+            <th scope="col" class="num hide-sm" :aria-sort="sortState(runsSort,'late')"><button class="sort" @click="sortRuns('late')">RTP 遅れ max (ms)</button></th>
+            <th scope="col">状態</th><th scope="col"></th>
+          </tr></thead>
+          <tbody>
+            <tr v-for="r in runsView" :key="r.id" class="clickable" :aria-selected="detail && detail.id===r.id" @click="openRun(r.id)">
+              <td @click.stop><label class="chk"><input type="checkbox" :value="r.id" v-model="selectedRuns"><span class="sr-only">ラン {{ r.id }} を選択</span></label></td>
+              <td class="mono">{{ r.id }}</td><td class="mono">{{ r.name }}</td><td class="hide-sm">{{ r.scenario_name }}</td><td class="mono hide-sm">{{ r.pbx.host }}</td><td class="mono">{{ ts(r.started_at) }}</td>
+              <td class="num mono">{{ r.summary ? n(r.summary.calls_started) : '–' }}</td><td class="num mono" :class="{bad: r.summary && r.summary.calls_failed}">{{ r.summary ? n(r.summary.calls_failed) : '–' }}</td>
+              <td class="num mono">{{ r.summary ? fmt(r.summary.invite_to_200_ms.p95, 1) : '–' }}</td><td class="num mono hide-sm">{{ r.summary ? fmt(r.summary.rtp.late_max_ms, 2) : '–' }}</td>
+              <td><span class="chip" :class="r.summary ? 'ok' : 'warn'">{{ r.summary ? '完了' : '未完了 / 保存なし' }}</span></td>
+              <td><button class="sm" @click.stop="openRun(r.id)" :aria-label="'ラン ' + r.id + ' の詳細'">詳細</button></td>
+            </tr>
+          </tbody>
+        </table></div>
+        <p class="empty" v-else>{{ runs.length ? '条件に合うランはありません。' : 'まだランがありません。実行タブで「開始」するとここに並びます。' }}</p>
+      </div>
+
+      <div class="panel" v-if="compare">
+        <h2>並べて比較 <span class="id">{{ compare.runs.map(r => '#' + r.id).join(' · ') }}</span><button class="sm quiet spread" @click="compare=null">閉じる</button></h2>
+        <div class="chart" ref="cchartEl" role="img" aria-label="各ランの確立数の推移"></div>
+        <div class="table-wrap" style="margin-top:12px"><table class="rows">
+          <thead><tr><th scope="col">指標</th><th scope="col" v-for="r in compare.runs" :key="r.id">#{{ r.id }} {{ r.name }}</th></tr></thead>
+          <tbody><template v-for="(row, i) in compare.rows" :key="i">
+            <tr v-if="row.label === null" class="sec"><th scope="row" :colspan="compare.runs.length + 1">{{ row.section }}</th></tr>
+            <tr v-else><th scope="row">{{ row.label }}</th><td v-for="(v, j) in row.values" :key="j">{{ v === null || v === undefined || v === '' ? '–' : v }}</td></tr>
+          </template></tbody>
+        </table></div>
+      </div>
+
+      <div class="panel" v-if="detail" ref="detailEl">
+        <h2>ラン <span class="id">#{{ detail.id }} {{ detail.name }}</span><span class="sub">· {{ ts(detail.started_at) }} → {{ ts(detail.finished_at) }}</span>
+          <span class="detail-nav spread"><button class="sm" @click="stepRun(1)" :disabled="!hasRun(1)">← 前のラン</button><button class="sm" @click="stepRun(-1)" :disabled="!hasRun(-1)">次のラン →</button><a class="btn sm" :href="'/api/runs/export.xlsx?ids=' + detail.id">xlsx</a><button class="sm quiet" @click="closeDetail" aria-label="詳細を閉じる">閉じる</button></span></h2>
         <div class="tiles" v-if="detail.summary">
-          <div class="tile"><div class="k">発信 / 確立 / 失敗</div><div class="v small">{{ detail.summary.calls_started }} / {{ detail.summary.calls_established }} / {{ detail.summary.calls_failed }}</div></div>
-          <div class="tile"><div class="k">INVITE→200 p50 / p95</div><div class="v small">{{ fmt(detail.summary.invite_to_200_ms.p50) }} / {{ fmt(detail.summary.invite_to_200_ms.p95) }} ms</div></div>
-          <div class="tile"><div class="k">RTP late max / lost</div><div class="v small">{{ detail.summary.rtp.late_max_ms }} ms / {{ detail.summary.rtp.rx_lost }}</div></div>
-          <div class="tile"><div class="k">応答内線</div><div class="v small">{{ Object.entries(detail.summary.answered_by_ext||{}).map(([k,v])=>k+':'+v).join(' ') }}</div></div>
+          <div class="tile" :data-state="detail.summary.calls_failed ? 'bad' : 'ok'"><div class="k">発信 / 確立 / 失敗</div><div class="v small">{{ n(detail.summary.calls_started) }} / {{ n(detail.summary.calls_established) }} / {{ n(detail.summary.calls_failed) }}</div></div>
+          <div class="tile"><div class="k">INVITE→200 p50 / p95 / max</div><div class="v small">{{ fmt(detail.summary.invite_to_200_ms.p50, 1) }} / {{ fmt(detail.summary.invite_to_200_ms.p95, 1) }} / {{ fmt(detail.summary.invite_to_200_ms.max, 1) }}<small>ms</small></div></div>
+          <div class="tile" :data-state="detail.summary.rtp.late_max_ms > 5 ? 'warn' : null"><div class="k">RTP 遅れ max / 5 ms 超 / 欠落</div><div class="v small">{{ fmt(detail.summary.rtp.late_max_ms, 2) }}<small>ms</small> / {{ n(detail.summary.rtp.late_over_5ms) }} / {{ n(detail.summary.rtp.rx_lost) }}</div></div>
+          <div class="tile"><div class="k">応答内線</div><div class="v small">{{ Object.entries(detail.summary.answered_by_ext||{}).map(([k,v])=>k+':'+v).join(' ') || '–' }}</div></div>
           <div class="tile" v-if="detail.summary.monitor && detail.summary.monitor.hangup_causes"><div class="k">PBX 切断理由</div><div class="v small">{{ Object.entries(detail.summary.monitor.hangup_causes).map(([k,v])=>k+':'+v).join(' ') }}</div></div>
         </div>
-        <canvas ref="dchart" width="1200" height="220" style="margin-top:10px"></canvas>
-        <details style="margin-top:8px"><summary>プラグインの行 / イベント</summary>
-          <table><tr v-for="row in (detail.summary && detail.summary.plugin_rows) || []"><td>{{ row[0] }}</td><td class="mono">{{ row[1] }}</td></tr></table>
-          <div class="events"><div v-for="e in detail.events"><span class="mono">{{ e.t }}s</span> {{ e.message }}</div></div>
-        </details>
+        <p class="empty" v-else>このランには summary がありません（途中で終了したか、保存されていません）。</p>
+        <div class="chart" ref="dchartEl" style="margin-top:12px" role="img" :aria-label="detailSummary"></div>
+        <div class="chart-meta" v-if="detail.samples_total > (detail.samples||[]).length"><span>表示は {{ n((detail.samples||[]).length) }} 点に間引いています（全体 {{ n(detail.samples_total) }} 点、ピークは保持）</span></div>
+        <h3 style="font-size:12px;font-weight:600;color:var(--muted);margin:14px 0 6px;letter-spacing:.06em;text-transform:uppercase">記録表と同じ指標</h3>
+        <div class="table-wrap" v-if="detailRows.length"><table class="rows"><tbody><template v-for="(row, i) in detailRows" :key="i">
+          <tr v-if="row.label === null" class="sec"><th scope="row" colspan="2">{{ row.section }}</th></tr>
+          <tr v-else><th scope="row">{{ row.label }}</th><td>{{ row.value === null || row.value === undefined || row.value === '' ? '–' : row.value }}</td></tr>
+        </template></tbody></table></div>
+        <details class="fold" v-if="detail.events && detail.events.length"><summary>イベント（{{ detail.events.length }}、新しい順）</summary><div class="fold-body events"><div v-for="(e, i) in [...detail.events].reverse()" :key="i"><span class="t">{{ mmss(e.t) }}</span><span class="k" :class="kindOf(e)">{{ kindOf(e) }}</span><span class="msg">{{ e.message }}</span></div></div></details>
       </div>
     </div>
   </main>
-  <main v-show="tab==='run'">
-    <div>
-      <div class="panel">
-        <h2>Run</h2>
-        <template v-if="!runActive">
-          <label>Scenario</label>
-          <select v-model="form.scenario">
-            <option v-for="s in scenarios" :value="s.file">{{ s.name || s.file }} <template v-if="s.pbx">({{ s.pbx.host }}, {{ s.pbx.environment }})</template></option>
-          </select>
-          <div class="grid2">
-            <div><label>Target N</label><input type="number" v-model.number="form.target" min="0" :max="form.max_concurrency"></div>
-            <div><label>Max N (cap)</label><input type="number" v-model.number="form.max_concurrency" min="1" max="50"></div>
-            <div><label>Ramp (calls/s)</label><input type="number" step="0.1" v-model.number="form.ramp_rate"></div>
-            <div><label>Call duration (s)</label><input type="number" v-model.number="form.call_duration"></div>
-          </div>
-          <label>PBX profile</label>
-          <select v-model="form.pbx_profile">
-            <option value="">(scenario: {{ selectedScenario && selectedScenario.pbx_profile ? selectedScenario.pbx_profile : 'none, use pbx: section' }})</option>
-            <option v-for="p in profiles" :value="p.name">{{ p.name }} ({{ p.executor }} {{ p.host }}, {{ p.environment }})</option>
-          </select>
-          <label><input type="checkbox" v-model="form.monitor"> PBX ホストを監視する（fs_cli / ps / ログ）</label>
-          <label v-if="activeEnv==='prod'" class="bad">
-            <input type="checkbox" v-model="form.confirm_prod"> 本番環境（prod）に負荷を掛けることを確認しました
-          </label>
-          <label><input type="checkbox" v-model="form.ignore_register_failure"> REGISTER 失敗を無視して開始</label>
-          <div class="row"><button class="primary" @click="startRun" :disabled="busy">Start</button><button @click="runPrecheck" :disabled="busy" title="REGISTER・1本疎通・RTP・PBX 監視・プラグインを確認">事前チェック</button></div>
-          <div v-if="precheck" style="margin-top:8px;font-size:12.5px">
-            <b :class="{bad: !precheck.ok}">{{ precheck.ok ? '事前チェック OK' : '事前チェック NG' }}</b> ({{ precheck.elapsed_s }}s)
-            <table><tr v-for="i in precheck.items"><td>{{ i.ok ? '✔' : '✖' }}</td><td :class="{bad: !i.ok}">{{ i.name }}</td><td class="mono" style="white-space:normal">{{ i.detail }}</td></tr></table>
-          </div>
-        </template>
-        <template v-else>
-          <div class="target">{{ ctl.target }} <span style="font-size:13px;color:var(--muted)">target / max {{ ctl.max_concurrency }}</span></div>
-          <input class="slider" type="range" min="0" :max="ctl.max_concurrency" :value="ctl.target" @input="setTarget($event.target.value)">
-          <div class="row">
-            <button @click="adjust(-5)">−5</button><button @click="adjust(-1)">−1</button>
-            <button @click="adjust(1)">+1</button><button @click="adjust(5)">+5</button>
-          </div>
-          <div class="row">
-            <button v-if="!ctl.paused" @click="post('/api/run/pause')">Pause</button>
-            <button v-else @click="post('/api/run/resume')">Resume</button>
-            <button @click="burst" title="ramp を無制限にして目標まで一気に発信">Burst to</button>
-            <input type="number" v-model.number="burstTarget" style="width:70px" min="0" :max="ctl.max_concurrency">
-            <button class="danger" @click="post('/api/run/hangup_all')">全切断</button>
-          </div>
-          <div class="grid2">
-            <div><label>Ramp (calls/s)</label><input type="number" step="0.1" v-model.number="rate.ramp_rate" @change="setRate"></div>
-            <div><label>Call duration (s)</label><input type="number" v-model.number="rate.call_duration" @change="setRate"></div>
-          </div>
-          <label>Step schedule (N:sec, ...)</label>
-          <div class="row">
-            <input type="text" v-model="scheduleText" placeholder="5:180,10:180,20:180" style="flex:1">
-            <button @click="schedule">Run</button>
-            <button v-for="p in presets" @click="preset(p)">Preset {{ p }}</button>
-            <button v-if="ctl.schedule_step" @click="post('/api/run/schedule/clear')">Clear</button>
-          </div>
-          <div v-if="ctl.schedule_step" class="warn">step {{ ctl.schedule_step.index+1 }}/{{ ctl.schedule_step.count }}: N={{ ctl.schedule_step.target }} {{ ctl.schedule_step.elapsed }}/{{ ctl.schedule_step.seconds }}s</div>
-          <div v-if="ctl.backoff_reason" class="err">自動減少: {{ ctl.backoff_reason }}</div>
-          <div class="row" style="margin-top:14px"><button class="danger" @click="stopRun" :disabled="busy">Stop run</button></div>
-        </template>
-        <div v-if="error" class="err">{{ error }}</div>
-      </div>
-      <div class="panel" style="margin-top:14px" v-if="run">
-        <h2>Answerer extensions</h2>
-        <table><tr><th>ext</th><th>reg</th><th>active</th><th>486</th></tr>
-          <tr v-for="(r,u) in run.registrations"><td class="mono">{{ u }}</td><td :class="{bad: r.state!=='registered'}">{{ r.state }}</td><td>{{ r.active }}/{{ r.max_calls }}</td><td>{{ r.busy_rejects }}</td></tr>
-        </table>
-      </div>
-      <div class="panel" style="margin-top:14px">
-        <h2>PBX profiles <span style="font-weight:400;text-transform:none">({{ profilesPath }})</span></h2>
-        <table><tr><th>name</th><th>host</th><th>exec</th><th>env</th><th></th></tr>
-          <tr v-for="p in profiles"><td class="mono">{{ p.name }}</td><td>{{ p.host }}</td><td>{{ p.executor }}</td><td :class="{bad: p.environment==='prod'}">{{ p.environment }}</td><td><button @click="testProfile(p.name)" :disabled="busy">Test</button></td></tr>
-        </table>
-        <div v-if="profileTest" style="margin-top:8px;font-size:12px" :class="{bad: !profileTest.ok}">
-          <template v-if="profileTest.ok">
-            <b>{{ profileTest.name }}</b>: connected in {{ profileTest.connect_ms }} ms via {{ profileTest.adapter.executor.kind }}, ESL {{ profileTest.adapter.esl }}<br>
-            {{ profileTest.status.version }} · up {{ profileTest.status.uptime }}<br>
-            sessions {{ profileTest.status.sessions }} (peak {{ profileTest.status.sessions_peak }}) · max-sessions <b>{{ profileTest.status.sessions_max }}</b> · sessions-per-second <b>{{ profileTest.status.sps_max }}</b> · channels {{ profileTest.channels }}<br>
-            process pid {{ profileTest.process.pid }} cpu {{ profileTest.process.cpu }}% mem {{ profileTest.process.mem }}% threads {{ profileTest.process.threads }}<br>
-            registrations: {{ profileTest.registrations.join(', ') || '(none)' }}
-          </template>
-          <template v-else>{{ profileTest.name }}: {{ profileTest.error }}</template>
-        </div>
-      </div>
-      <div class="panel" style="margin-top:14px" v-if="run">
-        <h2>Events</h2>
-        <div class="events"><div v-for="e in [...run.events].reverse()"><span class="mono">{{ e.t }}s</span> {{ e.message }}</div></div>
-      </div>
-    </div>
-    <div>
-      <div class="tiles" v-if="run">
-        <div class="tile"><div class="k">Target</div><div class="v">{{ ctl.target }}</div></div>
-        <div class="tile"><div class="k">Established</div><div class="v" style="color:var(--ok)">{{ ctl.established }}</div></div>
-        <div class="tile"><div class="k">Pending</div><div class="v" style="color:var(--warn)">{{ ctl.pending }}</div></div>
-        <div class="tile"><div class="k">Failed</div><div class="v" :class="{bad: run.stats.calls_failed>0}">{{ run.stats.calls_failed }}</div></div>
-        <div class="tile"><div class="k">Started / ended</div><div class="v small">{{ run.stats.calls_started }} / {{ run.stats.calls_ended }}</div></div>
-        <div class="tile"><div class="k">Calls/s</div><div class="v small">{{ run.stats.cps }}</div></div>
-        <div class="tile"><div class="k">INVITE→200 p50 / p95</div><div class="v small">{{ fmt(run.stats.invite_to_200_ms.p50) }} / {{ fmt(run.stats.invite_to_200_ms.p95) }} ms</div></div>
-        <div class="tile"><div class="k">RTP late max / >5ms</div><div class="v small" :class="{warn: run.stats.rtp.late_max_ms>5}">{{ run.stats.rtp.late_max_ms }} ms / {{ run.stats.rtp.late_over_5ms }}</div></div>
-        <div class="tile"><div class="k">RTP rx lost</div><div class="v small">{{ run.stats.rtp.rx_lost }}</div></div>
-      </div>
-      <div class="panel" style="margin-top:14px" v-if="run">
-        <h2>Concurrency (target / established / pending) · RTP late max</h2>
-        <canvas ref="chart" width="1200" height="220"></canvas>
-      </div>
-      <div class="panel" style="margin-top:14px" v-if="run && run.monitor">
-        <h2>PBX host <span style="font-weight:400;text-transform:none" v-if="run.pbx_profile">· {{ run.pbx_profile.name }} ({{ run.pbx_profile.executor }}) · {{ mon.adapter && mon.adapter.esl }}</span></h2>
-        <div v-if="mon.error" class="err">{{ mon.error }}</div>
-        <template v-else>
-        <div class="tiles">
-          <div class="tile"><div class="k">show channels count</div><div class="v">{{ fmt(mon.last.channels) }}</div></div>
-          <div class="tile"><div class="k">freeswitch %CPU (interval / ps avg)</div><div class="v">{{ fmt(mon.last.cpu) }} <span style="font-size:13px;color:var(--muted)">/ {{ fmt(mon.last.cpu_avg) }}</span></div></div>
-          <div class="tile"><div class="k">%MEM / RSS MB</div><div class="v small">{{ fmt(mon.last.mem) }} / {{ mon.last.rss_kb ? (mon.last.rss_kb/1024).toFixed(0) : '-' }}</div></div>
-          <div class="tile"><div class="k">nlwp (threads)</div><div class="v">{{ fmt(mon.last.nlwp) }}</div></div>
-          <div class="tile" v-for="(v,k) in (mon.last.custom||{})"><div class="k">{{ k }}</div><div class="v small">{{ fmt(v) }}</div></div>
-          <div class="tile"><div class="k">ESL events</div><div class="v small">{{ Object.entries(mon.esl_events||{}).map(([k,v])=>k.replace('CHANNEL_','')+' '+v).join(' · ') || '-' }}</div></div>
-          <div class="tile"><div class="k">hangup causes</div><div class="v small">{{ Object.entries(mon.hangup_causes||{}).map(([k,v])=>k+' '+v).join(' · ') || '-' }}</div></div>
-          <div class="tile"><div class="k">log WARN / ERR / CRIT</div><div class="v small" :class="{bad: (mon.log_level_counts.ERR||0)+(mon.log_level_counts.CRIT||0)>0}">{{ mon.log_level_counts.WARNING||0 }} / {{ mon.log_level_counts.ERR||0 }} / {{ mon.log_level_counts.CRIT||0 }}</div></div>
-        </div>
-        <canvas ref="mchart" width="1200" height="180" style="height:180px;margin-top:10px"></canvas>
-        <div class="grid2" style="margin-top:10px">
-          <div>
-            <h2>threads by name (count / %CPU)</h2>
-            <table><tr><th>name</th><th>count</th><th>%CPU</th></tr>
-              <tr v-for="(v,k) in mon.threads_by_name"><td class="mono">{{ k }}</td><td>{{ v.count }}</td><td>{{ v.cpu }}</td></tr>
-            </table>
-          </div>
-          <div>
-            <h2>top threads</h2>
-            <table><tr><th>tid</th><th>%CPU</th><th>name</th></tr>
-              <tr v-for="t in mon.top_threads.slice(0,8)"><td class="mono">{{ t.tid }}</td><td>{{ t.cpu }}</td><td class="mono">{{ t.name }}</td></tr>
-            </table>
-          </div>
-        </div>
-        <h2 style="margin-top:10px">log tail ({{ mon.log_lines_total }} lines)</h2>
-        <div class="events mono" style="max-height:200px;font-size:11px"><div v-for="l in [...mon.log_tail].reverse()">{{ l }}</div></div>
-        <div v-if="mon.errors && mon.errors.length" class="err">{{ mon.errors.join(' / ') }}</div>
-        </template>
-      </div>
-      <div class="panel" style="margin-top:14px" v-if="run && Object.keys(run.plugins||{}).length">
-        <h2>Plugins</h2>
-        <div class="grid2">
-          <div v-for="(p,name) in run.plugins" style="font-size:12.5px">
-            <b class="mono">{{ name }}</b> <span style="color:var(--muted)">{{ p.class }}</span>
-            <table>
-              <tr v-for="(v,k) in flatten(p)"><td class="mono" style="color:var(--muted)">{{ k }}</td><td class="mono">{{ typeof v === 'object' ? JSON.stringify(v) : v }}</td></tr>
-            </table>
-          </div>
-        </div>
-        <div v-if="Object.keys(run.plugin_metrics||{}).some(k=>k.includes('.'))" style="margin-top:8px">
-          <h2>plugin metrics (latest sample)</h2>
-          <div class="tiles">
-            <div class="tile" v-for="(v,k) in pluginMetrics"><div class="k">{{ k }}</div><div class="v small">{{ fmt(v) }}</div></div>
-          </div>
-        </div>
-      </div>
-      <div class="panel" style="margin-top:14px" v-if="run">
-        <h2>Calls ({{ run.calls.length }})</h2>
-        <div class="scroll">
-        <table>
-          <tr><th>id</th><th>state</th><th>to</th><th>→200 ms</th><th>dur s</th><th>tx</th><th>rx</th><th>lost</th><th>late max</th><th>reason</th></tr>
-          <tr v-for="c in run.calls"><td class="mono">{{ c.id }}</td><td><span class="tag" :class="c.state">{{ c.state }}</span></td><td>{{ c.remote }}</td><td>{{ fmt(c.to200_ms) }}</td><td>{{ fmt(c.duration_s) }}</td><td>{{ c.tx }}</td><td>{{ c.rx }}</td><td>{{ c.lost }}</td><td>{{ c.late_max_ms }}</td><td>{{ c.reason }}<span v-if="c.status"> ({{ c.status }})</span></td></tr>
-        </table>
-        </div>
-      </div>
-      <div class="panel" style="margin-top:14px">
-        <h2>Past runs <span style="font-weight:400;text-transform:none">· <a :href="'/api/runs/export.xlsx?ids=' + selectedRuns.join(',')">記録表 xlsx（{{ selectedRuns.length ? '選択 ' + selectedRuns.length + ' 件' : '最新 10 件' }}）</a></span></h2>
-        <table>
-          <tr><th></th><th>id</th><th>name</th><th>scenario</th><th>pbx</th><th>started</th><th>calls</th><th>failed</th><th>p95 →200</th><th>RTP late max</th></tr>
-          <tr v-for="r in runs"><td><input type="checkbox" :value="r.id" v-model="selectedRuns"></td><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.scenario_name }}</td><td>{{ r.pbx.host }}</td><td>{{ ts(r.started_at) }}</td><td>{{ r.summary ? r.summary.calls_started : '-' }}</td><td>{{ r.summary ? r.summary.calls_failed : '-' }}</td><td>{{ r.summary ? fmt(r.summary.invite_to_200_ms.p95) : '-' }}</td><td>{{ r.summary ? r.summary.rtp.late_max_ms : '-' }}</td></tr>
-        </table>
-      </div>
-    </div>
-  </main>
+
+  <dialog ref="dlgEl" @cancel.prevent="dialogAnswer(false)" aria-labelledby="dlg-title">
+    <form method="dialog" class="dlg" @submit.prevent="dialogAnswer(true)" v-if="dialog">
+      <h3 id="dlg-title">{{ dialog.title }}</h3>
+      <div class="body"><span class="chip prod" v-if="dialog.prod">PROD 本番環境</span><p v-for="(l, i) in dialog.lines" :key="i">{{ l }}</p></div>
+      <div class="actions"><button type="button" @click="dialogAnswer(false)" ref="dlgCancel">キャンセル</button><button type="submit" :class="dialog.danger ? 'danger' : 'primary'">{{ dialog.confirmLabel }}</button></div>
+    </form>
+  </dialog>
 </div>
-<script>
-const { createApp, ref, computed, onMounted, watch, nextTick } = Vue;
-createApp({
-  setup() {
-    const connected = ref(false), scenarios = ref([]), runs = ref([]), run = ref(null), error = ref(''), busy = ref(false);
-    const form = ref({ scenario: '', pbx_profile: '', monitor: true, target: 1, max_concurrency: 50, ramp_rate: 0.5, call_duration: 180, confirm_prod: false, ignore_register_failure: false });
-    const profiles = ref([]), profilesPath = ref(''), profileTest = ref(null);
-    const selectedRuns = ref([]);
-    const tab = ref('run'), scenarioDir = ref(''), precheck = ref(null), detail = ref(null), dchart = ref(null);
-    const editor = ref({ file: '', text: '', parsed: null, newName: '', msg: '', bad: false });
-    const profileFields = ref([]);
-    const pform = ref({ name: '', values: {}, msg: '', bad: false });
-    async function loadScenarioText() { if (!editor.value.file) return; const r = await api('/api/scenarios/' + editor.value.file); editor.value.text = r.yaml; editor.value.parsed = r.parsed; editor.value.msg = ''; }
-    async function saveScenario() {
-      editor.value.msg = '';
-      try { const r = await fetch('/api/scenarios/' + editor.value.file, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ yaml: editor.value.text }) }); const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText); editor.value.msg = '保存しました: ' + j.file; editor.value.bad = false; await loadScenarios(); await loadScenarioText(); }
-      catch (e) { editor.value.msg = String(e.message || e); editor.value.bad = true; }
-    }
-    async function createScenario() { if (!editor.value.newName) return; try { const j = await api('/api/scenarios', { name: editor.value.newName, template: editor.value.file || null }); await loadScenarios(); editor.value.file = j.file; editor.value.newName = ''; await loadScenarioText(); } catch (e) {} }
-    async function deleteScenario() { if (!editor.value.file || !confirm(editor.value.file + ' を削除しますか?')) return; await fetch('/api/scenarios/' + editor.value.file, { method: 'DELETE' }); editor.value.file = ''; editor.value.text = ''; editor.value.parsed = null; await loadScenarios(); }
-    function loadProfileForm() {
-      const p = profiles.value.find(x => x.name === pform.value.name);
-      const vals = {};
-      for (const f of profileFields.value) { let v = p ? p[f] : (f === 'type' ? 'freeswitch' : f === 'executor' ? 'local' : f === 'sip_transport' ? 'udp' : f === 'environment' ? 'dev' : ['sip_port'].includes(f) ? 5060 : f === 'sip_tls_port' ? 5061 : f === 'ssh_port' ? 22 : f === 'esl_port' ? 8021 : f === 'rtp_port_start' ? 16384 : f === 'rtp_port_end' ? 32768 : f === 'tls_verify' || f === 'ssh_strict_host_key' ? true : ''); if (f === 'extra') v = JSON.stringify(v || {}); vals[f] = v; }
-      pform.value.values = vals; pform.value.msg = '';
-    }
-    async function saveProfile() {
-      const vals = { ...pform.value.values };
-      try { vals.extra = vals.extra ? JSON.parse(vals.extra) : {}; } catch (e) { pform.value.msg = 'extra は JSON で書いてください'; pform.value.bad = true; return; }
-      for (const k of ['sip_port','sip_tls_port','ssh_port','esl_port','rtp_port_start','rtp_port_end','max_concurrency']) if (vals[k] !== '' && vals[k] !== null && vals[k] !== undefined) vals[k] = Number(vals[k]); else if (k === 'max_concurrency') vals[k] = null;
-      const name = vals.name; if (!name) { pform.value.msg = 'name は必須です'; pform.value.bad = true; return; }
-      try { const r = await fetch('/api/pbx/profiles/' + name, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: vals }) }); const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText); pform.value.msg = '保存しました'; pform.value.bad = false; await loadProfiles(); pform.value.name = name; }
-      catch (e) { pform.value.msg = String(e.message || e); pform.value.bad = true; }
-    }
-    async function deleteProfile() { if (!pform.value.name || !confirm(pform.value.name + ' を削除しますか?')) return; await fetch('/api/pbx/profiles/' + pform.value.name, { method: 'DELETE' }); pform.value.name = ''; await loadProfiles(); loadProfileForm(); }
-    async function runPrecheck() { busy.value = true; precheck.value = null; try { precheck.value = await api('/api/precheck', { scenario: form.value.scenario, pbx_profile: form.value.pbx_profile || null, monitor: form.value.monitor }); } catch (e) {} finally { busy.value = false; } }
-    async function openRun(id) { detail.value = await api('/api/runs/' + id); nextTick(drawDetail); }
-    function drawDetail() {
-      const c = dchart.value; if (!c || !detail.value) return;
-      const ctx = c.getContext('2d'); const W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
-      const s = (detail.value.samples || []).filter(p => p.kind !== 'monitor'); const mon = (detail.value.samples || []).filter(p => p.kind === 'monitor' && p.channels != null);
-      if (s.length < 2) return;
-      const t0 = s[0].t, t1 = s[s.length - 1].t, span = Math.max(30, t1 - t0);
-      const maxN = Math.max(5, ...s.map(p => Math.max(p.target, p.established + p.pending)), ...mon.map(p => p.channels)) * 1.1;
-      const x = t => 40 + (t - t0) / span * (W - 60), y = v => H - 22 - v / maxN * (H - 34);
-      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.font = '11px sans-serif'; ctx.fillStyle = '#6b7280';
-      for (let i = 0; i <= 4; i++) { const v = maxN / 1.1 * i / 4; ctx.beginPath(); ctx.moveTo(40, y(v)); ctx.lineTo(W - 20, y(v)); ctx.stroke(); ctx.fillText(Math.round(v), 4, y(v) + 4); }
-      const line = (pts, color, fn, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); pts.forEach((p, i) => { const v = fn(p); i ? ctx.lineTo(x(p.t), v) : ctx.moveTo(x(p.t), v); }); ctx.stroke(); ctx.setLineDash([]); };
-      line(s, '#0f766e', p => y(p.target), [6, 4]); line(s, '#15803d', p => y(p.established)); if (mon.length > 1) line(mon, '#b91c1c', p => y(p.channels), [2, 3]);
-      ctx.fillStyle = '#0f766e'; ctx.fillText('target', 50, 12); ctx.fillStyle = '#15803d'; ctx.fillText('established', 100, 12); ctx.fillStyle = '#b91c1c'; ctx.fillText('PBX channels', 180, 12);
-      ctx.fillStyle = '#6b7280'; ctx.fillText(t0 + 's', 40, H - 6); ctx.fillText(t1 + 's', W - 60, H - 6);
-    }
-    const mchart = ref(null);
-    const rate = ref({ ramp_rate: 0.5, call_duration: 180 });
-    const burstTarget = ref(10), scheduleText = ref('');
-    const chart = ref(null);
-    let ws = null, rateSynced = false;
-    const ctl = computed(() => run.value ? run.value.controller : {});
-    const runActive = computed(() => run.value && !run.value.finished);
-    const selectedScenario = computed(() => scenarios.value.find(s => s.file === form.value.scenario));
-    const presets = computed(() => selectedScenario.value ? (selectedScenario.value.presets || []) : []);
-    const pluginMetrics = computed(() => Object.fromEntries(Object.entries((run.value && run.value.plugin_metrics) || {}).filter(([k]) => k.includes('.'))));
-    const flatten = (obj, prefix = '') => { const out = {}; for (const [k, v] of Object.entries(obj || {})) { if (k === 'class' || k === 'output') continue; if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length && Object.values(v).every(x => x && typeof x === 'object')) { Object.assign(out, flatten(v, prefix + k + '.')); } else { out[prefix + k] = v; } } return out; };
-    const mon = computed(() => (run.value && run.value.monitor) ? run.value.monitor : { last: {}, log_level_counts: {}, top_threads: [], threads_by_name: {}, log_tail: [], series: [] });
-    const activeEnv = computed(() => {
-      const name = form.value.pbx_profile || (selectedScenario.value && selectedScenario.value.pbx_profile);
-      const p = profiles.value.find(x => x.name === name);
-      if (p) return p.environment;
-      return selectedScenario.value && selectedScenario.value.pbx ? selectedScenario.value.pbx.environment : '';
-    });
-    async function loadProfiles() { const r = await api('/api/pbx/profiles').catch(() => ({ profiles: [], path: '', fields: [] })); profiles.value = r.profiles; profilesPath.value = r.path; profileFields.value = r.fields || []; if (!Object.keys(pform.value.values).length) loadProfileForm(); }
-    async function testProfile(name) { busy.value = true; profileTest.value = null; try { profileTest.value = { name, ...(await api('/api/pbx/profiles/' + name + '/test', {})) }; } catch (e) {} finally { busy.value = false; } }
-    const fmt = v => (v === null || v === undefined) ? '-' : v;
-    const ts = t => t ? new Date(t * 1000).toLocaleString() : '-';
-    async function api(path, body) {
-      error.value = '';
-      const r = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) { error.value = j.detail || r.statusText; throw new Error(error.value); }
-      return j;
-    }
-    const post = (p, b) => api(p, b || {}).catch(() => {});
-    async function loadScenarios() {
-      scenarios.value = await api('/api/scenarios');
-      if (!form.value.scenario && scenarios.value.length) form.value.scenario = scenarios.value[0].file;
-      if (!editor.value.file && scenarios.value.length) { editor.value.file = scenarios.value[0].file; await loadScenarioText(); }
-      const st = await api('/api/state').catch(() => ({})); scenarioDir.value = st.scenario_dir || '';
-    }
-    async function loadRuns() { runs.value = await api('/api/runs').catch(() => []); }
-    watch(selectedScenario, s => { if (s && !s.error) { form.value.target = s.target; form.value.ramp_rate = s.ramp_rate; form.value.call_duration = s.call_duration; } });
-    async function startRun() {
-      busy.value = true;
-      try { await api('/api/run/start', form.value); rateSynced = false; } catch (e) {} finally { busy.value = false; }
-    }
-    async function stopRun() { busy.value = true; try { await api('/api/run/stop', {}); await loadRuns(); } catch (e) {} finally { busy.value = false; } }
-    const setTarget = v => post('/api/run/target', { target: Number(v) });
-    const adjust = d => post('/api/run/adjust', { delta: d });
-    const burst = () => post('/api/run/burst', { target: burstTarget.value });
-    const setRate = () => post('/api/run/rate', rate.value);
-    const schedule = () => post('/api/run/schedule', { text: scheduleText.value });
-    const preset = p => post('/api/run/schedule', { preset: p });
-    function connect() {
-      ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-      ws.onopen = () => connected.value = true;
-      ws.onclose = () => { connected.value = false; setTimeout(connect, 1500); };
-      ws.onmessage = ev => {
-        const s = JSON.parse(ev.data);
-        const wasActive = runActive.value;
-        run.value = s.run;
-        if (run.value && !rateSynced) { rate.value = { ramp_rate: run.value.controller.ramp_rate, call_duration: run.value.controller.call_duration }; rateSynced = true; }
-        if (wasActive && run.value && run.value.finished) loadRuns();
-        nextTick(() => { draw(); drawMonitor(); });
-      };
-    }
-    function drawMonitor() {
-      const c = mchart.value; if (!c || !run.value || !run.value.monitor || !run.value.monitor.series) return;
-      const ctx = c.getContext('2d'); const W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
-      const s = run.value.monitor.series.filter(p => p.channels !== null && p.channels !== undefined); if (s.length < 2) return;
-      const t0 = s[0].t, t1 = s[s.length - 1].t, span = Math.max(30, t1 - t0);
-      const maxC = Math.max(4, ...s.map(p => p.channels || 0)) * 1.1, maxP = Math.max(10, ...s.map(p => p.cpu || 0)) * 1.1, maxT = Math.max(10, ...s.map(p => p.nlwp || 0)) * 1.1;
-      const x = t => 40 + (t - t0) / span * (W - 60), y = (v, m) => H - 22 - v / m * (H - 34);
-      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.font = '11px sans-serif'; ctx.fillStyle = '#6b7280';
-      for (let i = 0; i <= 4; i++) { const v = maxC / 1.1 * i / 4; ctx.beginPath(); ctx.moveTo(40, y(v, maxC)); ctx.lineTo(W - 20, y(v, maxC)); ctx.stroke(); ctx.fillText(Math.round(v), 4, y(v, maxC) + 4); }
-      const line = (color, fn, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); s.forEach((p, i) => { const v = fn(p); i ? ctx.lineTo(x(p.t), v) : ctx.moveTo(x(p.t), v); }); ctx.stroke(); ctx.setLineDash([]); };
-      line('#0f766e', p => y(p.channels || 0, maxC));
-      line('#b91c1c', p => y(p.cpu || 0, maxP), [6, 4]);
-      line('#7c3aed', p => y(p.nlwp || 0, maxT), [2, 3]);
-      ctx.fillStyle = '#0f766e'; ctx.fillText('channels', 50, 12); ctx.fillStyle = '#b91c1c'; ctx.fillText('freeswitch %CPU (scale ' + Math.round(maxP / 1.1) + ')', 120, 12); ctx.fillStyle = '#7c3aed'; ctx.fillText('threads (scale ' + Math.round(maxT / 1.1) + ')', 300, 12);
-      ctx.fillStyle = '#6b7280'; ctx.fillText(t0 + 's', 40, H - 6); ctx.fillText(t1 + 's', W - 60, H - 6);
-    }
-    function draw() {
-      const c = chart.value; if (!c || !run.value) return;
-      const ctx = c.getContext('2d'); const W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
-      const s = run.value.series; if (s.length < 2) return;
-      const t0 = s[0].t, t1 = s[s.length - 1].t, span = Math.max(30, t1 - t0);
-      const maxN = Math.max(5, ...s.map(p => Math.max(p.target, p.established + p.pending))) * 1.1;
-      const maxL = Math.max(5, ...s.map(p => p.rtp_late_max_ms || 0)) * 1.1;
-      const x = t => 40 + (t - t0) / span * (W - 60), y = v => H - 22 - v / maxN * (H - 34), yl = v => H - 22 - v / maxL * (H - 34);
-      ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.font = '11px sans-serif'; ctx.fillStyle = '#6b7280';
-      for (let i = 0; i <= 4; i++) { const v = maxN / 1.1 * i / 4; ctx.beginPath(); ctx.moveTo(40, y(v)); ctx.lineTo(W - 20, y(v)); ctx.stroke(); ctx.fillText(Math.round(v), 4, y(v) + 4); }
-      const line = (key, color, fn, dash) => { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash(dash || []); ctx.beginPath(); s.forEach((p, i) => { const v = fn(p); i ? ctx.lineTo(x(p.t), v) : ctx.moveTo(x(p.t), v); }); ctx.stroke(); ctx.setLineDash([]); };
-      line('target', '#0f766e', p => y(p.target), [6, 4]);
-      line('est', '#15803d', p => y(p.established));
-      line('pend', '#b45309', p => y(p.established + p.pending));
-      line('late', '#7c3aed', p => yl(p.rtp_late_max_ms || 0), [2, 3]);
-      ctx.fillStyle = '#6b7280'; ctx.fillText(t0 + 's', 40, H - 6); ctx.fillText(t1 + 's', W - 60, H - 6);
-      ctx.fillStyle = '#0f766e'; ctx.fillText('target (dashed)', 50, 12); ctx.fillStyle = '#15803d'; ctx.fillText('established', 150, 12); ctx.fillStyle = '#b45309'; ctx.fillText('est+pending', 230, 12); ctx.fillStyle = '#7c3aed'; ctx.fillText('RTP late max ms (right scale ' + Math.round(maxL / 1.1) + ')', 320, 12);
-    }
-    onMounted(async () => { await loadScenarios(); await loadProfiles(); await loadRuns(); connect(); });
-    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, mchart, mon, activeEnv, profiles, profilesPath, profileTest, testProfile, pluginMetrics, flatten, selectedRuns, tab, scenarioDir, precheck, detail, dchart, editor, profileFields, pform, loadScenarioText, saveScenario, createScenario, deleteScenario, loadProfileForm, saveProfile, deleteProfile, runPrecheck, openRun, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
-  }
-}).mount('#app');
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>

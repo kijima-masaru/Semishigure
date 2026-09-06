@@ -244,7 +244,20 @@ Medium / Low の項目（入力枠の 1.29:1、`--muted` 4.83:1、ティール�
 | URL | `location.hash` によるタブと詳細の同期 | サーバ側のルーティング変更なしで deep link ができる。将来 SPA ルータに移る場合も置き換えやすい |
 | ファイル分割 | 第 2 段階で `index.html` を `styles.css` / `app.js` / コンポーネントに分割 | 現状の 482 行単一ファイルに状態バー・ドロワー・ダイアログを足すと保守しにくい。ビルド工程は入れない（ES modules をそのまま配信） |
 
-## 8. 参考
+## 8. 実施状況（2026-09-06）
+
+3 段階をまとめて実施した。対応表:
+
+| 提案 | 状態 | 備考 |
+|---|---|---|
+| F1〜F14 | 済 | F10 は `location.hash`、F11 は表直下のパネル（前 / 次 / 閉じる）で実装 |
+| A1〜A16 | 済 | A6 の読み上げ要約は 10 秒ごと。A7 の既定値は `/api/pbx/profiles` の `defaults` から |
+| V1〜V10 | 済 | V10 は欧文のみ同梱（日本語はシステムフォント） |
+| C1〜C11 | 済 | C3 のツールチップは uPlot の凡例（カーソル追従）。C8 の間引きはサーバ側 `max_points` |
+| CI | 済 | `ui` ジョブ（Playwright + axe-core）を追加 |
+
+## 9. 参考
 
 - スキルの設計方針と規則の抜粋: `docs/ui-ux/skill-brief.md`
-- スクリーンショット（現状）: `docs/ui-ux/run_1440.png`（ラン前）、`running_1440.png`（ラン中）、`results_1440.png`（結果）、`run_375.png`（375 px の横スクロール）、`scenarios_768.png`（YAML 欄の潰れ）
+- スクリーンショット（改修後）: `docs/ui-ux/after_running_1440.png`（ラン中）、`after_running_375.png`、`after_finished_1440.png`（終了後）、`after_results_compare_1440.png`（並べて比較）、`after_run_dark_1440.png`（ダーク）
+- スクリーンショット（改修前）: `docs/ui-ux/run_1440.png`（ラン前）、`running_1440.png`（ラン中）、`results_1440.png`（結果）、`run_375.png`（375 px の横スクロール）、`scenarios_768.png`（YAML 欄の潰れ）

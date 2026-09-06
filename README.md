@@ -40,7 +40,7 @@ tests/               単体テストと UAC⇄UAS ループバックテスト（
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                   # 51 tests, PBX 不要
+pytest                                   # 52 tests, PBX 不要
 ```
 
 ## 検証環境（FreeSWITCH / Asterisk）
@@ -142,7 +142,14 @@ semishigure load examples/fusionpbx.yaml --schedule "5:40,20:40,8:40" --duration
 
 ## 画面
 
-`semishigure serve` で http://127.0.0.1:8080。実行（スライダー、事前チェック、監視、プラグイン）、シナリオ（YAML 編集）、PBX（プロファイル編集と Test）、結果（ラン一覧、詳細、記録表 xlsx）の 4 画面。
+`semishigure serve` で http://127.0.0.1:8080。実行 / シナリオ / PBX / 結果の 4 画面（URL は `#run` `#results/12` のように同期）。
+
+- 実行: 手順書の順（1. 何を掛けるか → 2. どう上げるか（固定 N / 段階 / プリセット）→ 3. 記録）のフォーム、「この設定で実行します」の解決結果（host / env / 上限 / secret 名）、事前チェックの進行表示と結果。ラン中は目標 N のスライダーだけを主操作にし、状態バー（確立 / 接続中 / 失敗 / ステップ / 残り秒 / 自動減少）、指標タイル、uPlot のチャート（目標・確立・接続中・PBX channels・RTP 遅れ、ホバーで値）、通話一覧（フィルタ・ソート）、PBX ホスト（最終取得時刻と stale 表示、ログ tail）。「全通話を切る」「ランを停止」は最下部の危険ゾーンにあり確認ダイアログを経由する。終了後は結果 / xlsx / 再実行への導線。
+- シナリオ: YAML 編集と保存時の検証（エラーは欄の直下、フォーカス移動）。
+- PBX: プロファイルをグループ分けしたフォーム（SSH は executor=ssh のときだけ）。
+- 結果: 検索・ソート・複数選択、詳細（記録表と同じ指標の表、チャート、前後のラン）、「並べて比較」（指標を列に、確立数を重ね描き）。
+
+ライト / ダークはシステム設定に追従し、ヘッダーのボタンで切り替え。フォント（IBM Plex Sans / JetBrains Mono の欧文）と uPlot は `ui/static/vendor/` に同梱しているので CDN は不要（Vue も同様にフォールバック）。画面の検査は `tests/ui/check_ui.mjs`（Playwright + axe-core、CI の `ui` ジョブ）。改修の経緯は `docs/ui-ux-proposal.md`。
 
 ## 開発
 
