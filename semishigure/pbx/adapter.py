@@ -13,6 +13,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from semishigure.pbx.ami import AmiClient, AmiError
 from semishigure.pbx.esl import EslClient, EslError
 from semishigure.pbx.executor import Executor, ExecutorError
 from semishigure.pbx.profile import PbxProfile
@@ -266,7 +267,140 @@ class FreeSwitchAdapter(PbxAdapter):
         return {"type": "freeswitch", "executor": self.executor.describe(), "esl": "connected" if self.esl and self.esl.connected else f"unavailable ({self.esl_error})" if self.esl_error else "not configured"}
 
 
+class AsteriskAdapter(PbxAdapter):
+    """Asterisk via ``asterisk -rx`` (CLI over the executor) with AMI for events.
+    ``profile.fs_cli`` holds the asterisk binary/CLI prefix (default ``asterisk``),
+    ``profile.esl_*`` are reused for AMI (host/port/password ref, user in ``extra['ami_user']``)."""
+
+    def __init__(self, profile: PbxProfile, executor: Executor, secrets: SecretStore | None = None):
+        super().__init__(profile, executor, secrets)
+        self.ami: AmiClient | None = None
+        self.ami_error: str = ""
+        if self.profile.fs_cli in ("", "fs_cli"):
+            self.profile.fs_cli = "asterisk"
+        if self.profile.log_path == "/var/log/freeswitch/freeswitch.log":
+            self.profile.log_path = "/var/log/asterisk/full"
+        if self.profile.process_name == "freeswitch":
+            self.profile.process_name = "asterisk"
+
+    async def connect(self) -> None:
+        await self.executor.connect()
+        password = ""
+        if self.profile.esl_password_ref:
+            try:
+                password = self.secrets.resolve(self.profile.esl_password_ref)
+            except Exception as exc:  # noqa: BLE001
+                self.ami_error = str(exc)
+        user = str(self.profile.extra.get("ami_user") or "semishigure")
+        if password:
+            try:
+                host, port = await self.executor.forward(self.profile.esl_host, self.profile.esl_port or 5038)
+                client = AmiClient(host, port, user, password)
+                await client.connect()
+                self.ami = client
+                self.ami_error = ""
+            except (AmiError, ExecutorError, OSError) as exc:
+                self.ami = None
+                self.ami_error = str(exc)
+                log.warning("AMI unavailable (%s); using asterisk -rx", exc)
+
+    async def close(self) -> None:
+        if self.ami is not None:
+            await self.ami.close()
+            self.ami = None
+        await self.executor.close()
+
+    async def api(self, command: str) -> str:
+        if self.ami is not None and self.ami.connected:
+            try:
+                return await self.ami.command(command)
+            except (AmiError, TimeoutError) as exc:
+                self.ami_error = str(exc)
+                log.warning("ami command failed (%s); using asterisk -rx", exc)
+        conf = self.profile.extra.get("asterisk_conf")
+        cli = self.profile.fs_cli + (f" -C {shlex.quote(str(conf))}" if conf else "")
+        r = await self.executor.run(f"{cli} -rx {shlex.quote(command)}", timeout=15)
+        return r.stdout
+
+    async def status(self) -> PbxStatus:
+        version = await self.api("core show version")
+        st = PbxStatus(raw=version)
+        m = re.search(r"Asterisk\s+(\S+)", version)
+        if m:
+            st.version = m.group(1)
+        chans = await self.api("core show channels count")
+        m = re.search(r"(\d+)(?: of (\d+) max)? active calls?", chans)
+        if m:
+            st.sessions = int(m.group(1))
+            if m.group(2):
+                st.sessions_max = int(m.group(2))
+        settings = await self.api("core show settings")
+        m = re.search(r"Maximum calls:\s+(\S+)", settings)
+        if m and m.group(1).isdigit():
+            st.sessions_max = int(m.group(1))
+        m = re.search(r"System uptime:\s+([^\n]+)", await self.api("core show uptime"))
+        if m:
+            st.uptime = m.group(1).strip()
+        return st
+
+    async def channels_count(self) -> int:
+        out = await self.api("core show channels count")
+        m = re.search(r"(\d+) active channel", out)
+        return int(m.group(1)) if m else 0
+
+    async def channels(self) -> list[dict]:
+        out = await self.api("core show channels concise")
+        rows = []
+        for ln in out.splitlines():
+            parts = ln.split("!")
+            if len(parts) >= 6 and "/" in parts[0]:
+                rows.append({"channel": parts[0], "context": parts[1], "exten": parts[2], "prio": parts[3], "state": parts[4], "application": parts[5], "data": parts[6] if len(parts) > 6 else ""})
+        return rows
+
+    async def registrations(self) -> list[str]:
+        out = await self.api("pjsip show contacts")
+        return sorted({m.group(1) for m in re.finditer(r"Contact:\s+(\d+)/sip:", out)})
+
+    async def limits(self) -> dict:
+        st = await self.status()
+        return {"max_sessions": st.sessions_max, "sessions_per_second": None}
+
+    async def esl_subscribe(self, on_event, events: list[str] | None = None) -> bool:
+        """Event feed (same hook name as FreeSWITCH so Monitor stays generic)."""
+        if self.ami is None or not self.ami.connected:
+            return False
+
+        def translate(ev: dict) -> None:
+            name = ev.get("Event", "")
+            mapped = {"Newchannel": "CHANNEL_CREATE", "Hangup": "CHANNEL_HANGUP_COMPLETE", "Newstate": None}.get(name)
+            if name == "Newstate" and ev.get("ChannelStateDesc") == "Up":
+                mapped = "CHANNEL_ANSWER"
+            if not mapped:
+                return
+            chan = ev.get("Channel", "")
+            # PJSIP/9100-0000000a is our caller (A-leg); other endpoints are B-legs
+            direction = "inbound" if chan.startswith("PJSIP/9100-") or ev.get("ChanVariable(SEMI_CALL)") and not chan.startswith(tuple(f"PJSIP/{u}-" for u in ("9001", "9002", "9003", "9004"))) else "outbound"
+            out = {
+                "Event-Name": mapped,
+                "Unique-ID": ev.get("Uniqueid", ""),
+                "Call-Direction": direction,
+                "Hangup-Cause": ev.get("Cause-txt", ev.get("Cause", "")),
+                "variable_billsec": "",
+                "variable_sip_h_X-Semishigure-Call": ev.get("ChanVariable(SEMI_CALL)", ""),
+            }
+            on_event(out)
+
+        self.ami.on_event = translate
+        await self.ami.events_on("call")
+        return True
+
+    def describe(self) -> dict:
+        return {"type": "asterisk", "executor": self.executor.describe(), "esl": "connected (AMI)" if self.ami and self.ami.connected else f"unavailable ({self.ami_error})" if self.ami_error else "not configured"}
+
+
 def make_adapter(profile: PbxProfile, executor: Executor, secrets: SecretStore | None = None) -> PbxAdapter:
     if profile.type == "freeswitch":
         return FreeSwitchAdapter(profile, executor, secrets)
-    raise ValueError(f"PBX type {profile.type!r} is not supported yet (stage 5: asterisk)")
+    if profile.type == "asterisk":
+        return AsteriskAdapter(profile, executor, secrets)
+    raise ValueError(f"unknown PBX type {profile.type!r} (freeswitch | asterisk)")

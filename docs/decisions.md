@@ -44,3 +44,15 @@
 | SSH 鍵のパスフレーズ / ESL パスワード | プロファイルには `secret:NAME` 参照だけを書く。API で値を直接書こうとすると 400 で拒否 | 共有事項 6 節 |
 | 通話イベントの対応付け | ESL の CHANNEL_* イベントで `variable_sip_h_X-Semishigure-Call` を見て自通話に対応付け、切断理由と billsec を記録 | 段階 2 で入れたヘッダーをそのまま使える。PBX 側の視点（USER_BUSY / LOSE_RACE 等）が取れる |
 | プラグインのフック | `Monitor.plugins` の `collect_metrics(adapter)` と `parse_log_line(line)` を本体側に用意し、Flatline 固有の解析は段階 4 で `plugins/flatline` に閉じ込める | 本体を汎用に保つ |
+
+## Asterisk 対応（段階 5 の前倒し）で決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| 段階の順序 | 段階 4（Flatline）を保留し、段階 5 の Asterisk 対応を先に実施 | 段階 4 の検証環境（Flatline 一式、Deepgram、ChatAPI、OpenAI、実音声）を用意できない。「PBX と接続して発信・応答・負荷検証ができる」が優先事項 |
+| Asterisk の入手 | Ubuntu 24.04 の apt パッケージ（20.6、chan_pjsip）。Docker も `ubuntu:24.04` + apt | ソースビルドより速く、pjproject の同梱ダウンロード（GitHub のアーカイブ）がプロキシで遮断される環境でも動く |
+| API コマンドの経路 | AMI の `Command` アクション（自前 TCP クライアント）を第一にし、`asterisk -rx` にフォールバック。設定は FreeSWITCH の ESL と同じ項目（`esl_host` / `esl_port` / `esl_password_ref`）を流用し、ユーザー名は `extra.ami_user` | プロファイルの項目を増やさず両 PBX を同じ形で扱う |
+| 通話イベントの対応付け | ダイアルプランで `Set(__SEMI_CALL=${PJSIP_HEADER(read,X-Semishigure-Call)})` し、`manager.conf` の `channelvars=SEMI_CALL` でイベントに載せる | Asterisk のイベントには SIP ヘッダーが載らないため |
+| B レグへのヘッダー転送 | Dial の pre-dial ハンドラ（`b(default^predial^1)`）で `X-Semishigure-Call` と `X-LANG` を追加 | FreeSWITCH は自動でコピーするが Asterisk はしない。応答側のグループ化は時間窓へのフォールバックでも動くが、ヘッダーがあれば確実 |
+| 着信グループの通話制限 | `GROUP()` / `GROUP_COUNT()` で 20 を超えたら `Busy()`（486） | FusionPBX の limit と同じ挙動。負荷側の自動減少が Asterisk でも働くことを確認 |
+| Asterisk の GPL | PBX 側のソフトとして使うだけで、アプリには組み込まない。`deploy/asterisk` は設定ファイルと Dockerfile のみ | 依存ライブラリの制約（GPL 不可）はアプリ本体に対するもの |

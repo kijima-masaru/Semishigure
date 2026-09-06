@@ -1,0 +1,66 @@
+# Semishigure scenario for the local Asterisk verification PBX (deploy/asterisk).
+# Passwords are references: export SEMISHIGURE_SECRET_EXT=<password> or
+# `semishigure secret set ext`.
+name: dev-asterisk-basic
+description: caller 9100 -> ring group 8001 -> answerers 9001..9004, WAV both ways
+# PBX profile (~/.semishigure/pbx_profiles.yaml). When set, host/port/domain/environment
+# come from the profile and the PBX host is monitored during the run.
+pbx_profile: ast-local
+
+pbx:
+  host: 127.0.0.1          # Asterisk SIP address (SEMI_AST_SIP_IP)
+  sip_port: 5090
+  domain: pbx.semishigure.test
+  caller_port: 5070
+  answerer_port: 5080
+  rtp_port_start: 20000
+  rtp_port_end: 20999
+  environment: dev
+
+caller:
+  auth_user: "9100"
+  auth_password_ref: secret:ext
+  from_number: "9100"
+  destination: "8001"
+  headers:
+    X-LANG: en
+    X-ENABLE-TRANSCRIBE: "true"
+    X-ENABLE-SUMMARIZE: "true"
+    X-ENABLE-TRANSLATE: "true"
+  codec: PCMU
+  audio: ../audio/speech_en.wav
+  audio_loop: true
+  steps:
+    - hold: 180s
+    - bye
+
+answerer:
+  extensions:
+    - { user: "9001", password_ref: secret:ext, max_calls: 5 }
+    - { user: "9002", password_ref: secret:ext, max_calls: 5 }
+    - { user: "9003", password_ref: secret:ext, max_calls: 5 }
+    - { user: "9004", password_ref: secret:ext, max_calls: 5 }
+  answer_after: 0s
+  audio: ../audio/speech_ja.wav
+  audio_loop: true
+
+load:
+  target_concurrency: 1
+  ramp_rate: 0.5/s
+  call_duration: 180s
+  max_total_calls: null
+  presets:
+    A: { target_concurrency: [5, 10, 20], ramp_rate: 0.5/s, call_duration: 180s }
+    B: { target_concurrency: 10, ramp_rate: 10/s, call_duration: 180s }
+
+monitor:                      # PBX-side sampling; Asterisk CLI via AMI (fallback: asterisk -rx)
+  interval: 2s
+  commands:
+    - name: active_calls
+      api: core show channels count
+      parse: "regex:(\\d+)(?: of \\d+ max)? active call"
+    - name: pjsip_contacts
+      api: pjsip show contacts
+      parse: "regex:Objects found: (\\d+)"
+    - name: load1
+      cmd: cut -d' ' -f1 /proc/loadavg
