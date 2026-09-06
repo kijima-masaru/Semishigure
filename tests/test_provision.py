@@ -55,7 +55,7 @@ async def test_freeswitch_files_and_restore(tmp_path: Path, monkeypatch):
     assert rec["secret_names"] == ["lt_9100", "lt_9001", "lt_9002"]
     store = ProvisionStore(tmp_path / "home" / "provision.yaml")
     store.put("p", rec)
-    assert "lt_9001" in store.get("p")["secret_names"] and pw not in (tmp_path / "home" / "provision.yaml").read_text()
+    assert "lt_9001" in store.get("p")["secret_names"] and pw not in (tmp_path / "home" / "provision.yaml").read_text(encoding="utf-8")
     res = await prov.remove(store.get("p"))
     assert not (conf / "directory" / "default" / "semishigure-loadtest.xml").exists()
     assert (conf / "directory" / "default.xml").read_text() == VANILLA_DIR and (conf / "dialplan" / "default.xml").read_text() == VANILLA_DP

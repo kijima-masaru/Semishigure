@@ -100,7 +100,7 @@ async def _cmd_call(args: argparse.Namespace) -> int:
     snap["finished_at"] = time.time()
     _print_report(snap)
     if args.report:
-        Path(args.report).write_text(json.dumps(snap, indent=2, ensure_ascii=False))
+        Path(args.report).write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"report written to {args.report}")
     ok = all(r["end_reason"] in ("duration_elapsed", "remote_bye", "local_bye") and r["invite_to_200_ms"] is not None for r in snap["caller_calls"])
     return exit_code if exit_code else (0 if ok else 1)
@@ -229,7 +229,7 @@ async def _cmd_load(args: argparse.Namespace) -> int:
         for label, value in summ["plugin_rows"]:
             print(f"  {label}: {value}")
     if args.report:
-        Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False))
+        Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False), encoding="utf-8")
         print(f"report written to {args.report}")
     return exit_code
 

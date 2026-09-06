@@ -74,10 +74,8 @@ async def test_call_duration_expiry_and_refill():
     await run.start(ignore_register_failure=True)
     try:
         assert await _wait(lambda: run.controller.state()["established"] == 3)
-        await asyncio.sleep(2.5)
-        st = run.controller.state()
-        assert st["established"] == 3
-        assert run.stats.end_by_reason.get("duration_elapsed", 0) >= 3
+        # every call ends after ~1 s and is refilled: wait until 3 have expired and the level is back at 3 (no instant sampling: scheduling jitter)
+        assert await _wait(lambda: run.stats.end_by_reason.get("duration_elapsed", 0) >= 3 and run.controller.state()["established"] == 3, timeout=6)
     finally:
         await run.stop()
 

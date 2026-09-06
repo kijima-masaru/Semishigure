@@ -45,11 +45,11 @@ class SecretStore:
         key = os.environ.get("SEMISHIGURE_MASTER_KEY")
         if not key:
             if self.key_file.exists():
-                key = self.key_file.read_text().strip()
+                key = self.key_file.read_text(encoding="utf-8").strip()
             elif create:
                 key = Fernet.generate_key().decode()
                 self.home.mkdir(parents=True, exist_ok=True)
-                self.key_file.write_text(key)
+                self.key_file.write_text(key, encoding="utf-8")
                 try:
                     os.chmod(self.key_file, 0o600)
                 except OSError:
