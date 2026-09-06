@@ -144,10 +144,14 @@
         const r = run.value;
         if (r && !r.finished) {
           const regs = Object.values(r.registrations || {}), okc = regs.filter((x) => x.state === "registered").length;
+          const pending = regs.some((x) => x.state === "registering"), failed = regs.some((x) => x.state === "failed");
           const m = r.monitor, mon = !m ? "監視なし" : m.error ? "監視エラー" : "監視 OK";
           const sip = regs.length ? `SIP 登録 ${okc}/${regs.length}` : "SIP 登録なし";
+          const title = m && m.error ? String(m.error) : "";
+          // 接続しています…: still registering / 接続済み: everything up / 一部に問題: a registration failed or the monitor errors
+          if (pending && !failed && !(m && m.error)) return { cls: "warn", text: `PBX ${r.pbx.host} に接続しています… · ${sip}`, title };
           const bad = (regs.length && okc < regs.length) || (m && m.error);
-          return { cls: bad ? "warn" : "on", text: `PBX ${r.pbx.host} に接続中 · ${sip} · ${mon}`, title: m && m.error ? String(m.error) : "" };
+          return { cls: bad ? "warn" : "on", text: `PBX ${r.pbx.host} ${bad ? "一部に問題" : "接続済み"} · ${sip} · ${mon}`, title };
         }
         if (precheckRunning.value) return { cls: "warn", text: "PBX に接続して事前チェック中", title: "" };
         const pc = precheckState.value && precheckState.value.result;
