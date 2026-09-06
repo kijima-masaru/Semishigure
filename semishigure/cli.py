@@ -19,7 +19,7 @@ from semishigure.core.run import ProdConfirmationRequired, Run
 from semishigure.core.store import RunStore
 from semishigure.media.wav import synth_speech_like, write_wav
 from semishigure.pbx.adapter import make_adapter
-from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
+from semishigure.pbx.profile import DEFAULT_DIR, PbxProfile, ProfileStore, build_executor
 from semishigure.scenario.model import load_scenario
 from semishigure.secrets import SecretError, SecretStore
 
@@ -390,7 +390,9 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     from semishigure.api.app import create_app
 
-    app = create_app(scenario_dir=Path(args.scenarios), store=None if args.no_store else RunStore())
+    scenarios = Path(args.scenarios) if args.scenarios else (Path("examples") if Path("examples").is_dir() else DEFAULT_DIR / "scenarios")
+    print(f"scenarios: {scenarios}")
+    app = create_app(scenario_dir=scenarios, store=None if args.no_store else RunStore())
     uvicorn.run(app, host=args.host, port=args.port, log_level="info" if args.verbose else "warning")
     return 0
 
@@ -471,7 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     sv = sub.add_parser("serve", help="start the web UI / API server")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8080)
-    sv.add_argument("--scenarios", default="examples", help="directory with scenario YAML files")
+    sv.add_argument("--scenarios", default=None, help="directory with scenario YAML files (default: $SEMISHIGURE_HOME/scenarios, or ./examples when it exists)")
     sv.add_argument("--no-store", action="store_true")
     sv.set_defaults(func=_cmd_serve)
 

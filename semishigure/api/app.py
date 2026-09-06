@@ -179,6 +179,7 @@ class AppState:
 
 def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = None) -> FastAPI:
     state = AppState(Path(scenario_dir), store)
+    state.scenario_dir.mkdir(parents=True, exist_ok=True)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -518,7 +519,7 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         if req.template:
             text = state.scenario_path(req.template).read_text(encoding="utf-8")
         else:
-            text = (Path(__file__).resolve().parent.parent.parent / "examples" / "dev-freeswitch.yaml").read_text(encoding="utf-8") if (Path(__file__).resolve().parent.parent.parent / "examples" / "dev-freeswitch.yaml").exists() else "name: new-scenario\n"
+            text = (Path(__file__).resolve().parent.parent / "scenario" / "template.yaml").read_text(encoding="utf-8")
         p.write_text(text, encoding="utf-8")
         return {"file": p.name}
 
