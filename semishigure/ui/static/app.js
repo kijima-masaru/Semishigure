@@ -505,7 +505,7 @@
 
       // ---- 更新: newest release on GitHub; the desktop build installs it by itself ----
       const update = ref({ checked: false, busy: false, newer: false, latest: "", current: "", can_install: false, html_url: "", error: "", installing: false, notes: "" });
-      const updateTitle = computed(() => update.value.installing ? "更新中" : update.value.newer ? `新しい版 ${update.value.latest} があります（現在 ${update.value.current}）。押すと更新します` : update.value.error ? `更新の確認: ${update.value.error}` : "最新版かどうか確認する");
+      const updateTitle = computed(() => update.value.installing ? "更新中" : update.value.newer ? `Ver. ${update.value.latest} があります（現在 Ver. ${update.value.current}）。押すと更新します` : update.value.error ? `更新の確認: ${update.value.error}` : "最新版かどうか確認する");
       async function checkUpdate(manual) {
         if (update.value.busy || update.value.installing) return;
         update.value.busy = true;
@@ -513,7 +513,7 @@
           const r = await api("/api/update/check" + (manual ? "?force=true" : ""), undefined, { quiet: true });
           Object.assign(update.value, { checked: true, newer: !!r.newer, latest: r.latest || "", current: r.current || "", can_install: !!r.can_install, html_url: r.html_url || "", error: r.error || "", notes: r.notes || "" });
           if (r.error) { if (manual) showToast("最新版を確認できません: " + r.error, "bad"); return; }
-          if (!r.newer) { if (manual) showToast(`最新版です（${r.current}）`); return; }
+          if (!r.newer) { if (manual) showToast(`最新版です（Ver. ${r.current}）`); return; }
           await offerUpdate();
         } catch (e) { if (manual) showToast("最新版を確認できません: " + (e.message || e), "bad"); }
         finally { update.value.busy = false; }
@@ -521,10 +521,10 @@
       async function offerUpdate() {
         const u = update.value;
         if (u.can_install) {
-          const ok = await confirmDialog({ title: `新しい版 ${u.latest} に更新しますか？`, lines: [`現在の版は ${u.current} です。`, "インストーラをダウンロードして検証し、アプリをいったん閉じて更新します。終わると自動で再び開きます。", run.value && !run.value.finished ? "実行中のランがあるので、先に止めてください。" : "所要時間は 1 分ほどです。"], confirmLabel: "今すぐ更新する" });
+          const ok = await confirmDialog({ title: `Ver. ${u.latest} に更新しますか？`, lines: [`現在は Ver. ${u.current} です。`, "インストーラをダウンロードして検証し、アプリをいったん閉じて更新します。終わると自動で再び開きます。", run.value && !run.value.finished ? "実行中のランがあるので、先に止めてください。" : "所要時間は 1 分ほどです。"], confirmLabel: "今すぐ更新する" });
           if (ok) await installUpdate();
         } else {
-          const ok = await confirmDialog({ title: `新しい版 ${u.latest} があります`, lines: [`現在の版は ${u.current} です。`, "この起動方法では自動更新できません。リリースページからインストーラを取得してください。"], confirmLabel: "リリースページを開く" });
+          const ok = await confirmDialog({ title: `Ver. ${u.latest} があります`, lines: [`現在は Ver. ${u.current} です。`, "この起動方法では自動更新できません。リリースページからインストーラを取得してください。"], confirmLabel: "リリースページを開く" });
           if (ok && u.html_url) window.open(u.html_url, "_blank", "noopener");
         }
       }

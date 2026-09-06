@@ -27,7 +27,7 @@
     </nav>
   </header>
 
-  <div v-if="update.installing" class="band warn" role="status"><ico name="warning"></ico><span class="grow">版 {{ update.latest }} に更新しています。アプリはいったん閉じ、インストールが終わると自動で再び開きます（1 分ほど）。</span></div>
+  <div v-if="update.installing" class="band warn" role="status"><ico name="warning"></ico><span class="grow">Ver. {{ update.latest }} に更新しています。更新後、再起動されます。</span></div>
   <div v-if="alert" class="band" :class="alert.kind" role="alert"><ico :name="alert.kind==='bad' ? 'x-circle' : 'warning'"></ico><span class="grow">{{ alert.text }}</span><button class="sm" @click="alert=null" aria-label="閉じる">閉じる</button></div>
   <div v-else-if="stale" class="band warn" role="status"><ico name="warning"></ico><span class="grow">サーバとの接続が切れています。表示は {{ staleFor }} 前の値です。再接続を試みています。</span></div>
   <div v-else-if="ctl.backoff_reason" class="band warn" role="status"><ico name="warning"></ico><span class="grow">{{ backoffText }}</span></div>

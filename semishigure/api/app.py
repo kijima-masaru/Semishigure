@@ -236,7 +236,7 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
     async def debug_log(lines: int = 500) -> dict:
         desktop_log = DEFAULT_DIR / "desktop.log"
         env = [
-            ["版", __version__],
+            ["Ver.", __version__],
             ["OS", platform.platform()],
             ["Python", sys.version.split()[0] + "  " + sys.executable],
             ["起動方法", "デスクトップ版" if state.desktop else "semishigure serve"],
