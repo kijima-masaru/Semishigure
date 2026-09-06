@@ -1,3 +1,5 @@
+<img src="semishigure/ui/static/icon.png" width="96" alt="" align="left" style="margin-right:16px">
+
 # Semishigure（蝉時雨）
 
 PBX（FreeSWITCH / Asterisk / FusionPBX）に対する同時通話の負荷検証ツールです。SIP / RTP のスタックを内蔵し、発信側と応答側の両方を自分で演じます。SIPp や pjsua は使いません。目標同時数 N を画面から動かしながら、応答時間・RTP の送出遅れ・PBX 側の channels / CPU / ログを記録し、記録表（xlsx）に落とします。
