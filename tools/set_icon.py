@@ -24,7 +24,6 @@ def main(argv: list[str]) -> int:
     src = Path(argv[1])
     im = Image.open(src)
     if src.suffix.lower() == ".ico":
-        im.size  # ICO: pick the largest frame
         best = max(im.ico.sizes()) if hasattr(im, "ico") else im.size
         im = im.ico.getimage(best) if hasattr(im, "ico") else im
     im = im.convert("RGBA")
