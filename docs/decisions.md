@@ -112,3 +112,18 @@
 | 着信グループの Destination | 作成後に Enabled が True であることを確認する手順を README に入れる | 5.5 の画面で追加した宛先が無効のまま保存され、鳴らないことがあった |
 | `limit_max` の扱い | アプリの `max_calls` を `limit_max` と同じ 5 にし、PBX 側の制限は直接発信の検証でだけ確認 | 着信グループ経由では FusionPBX の `limit_max` が掛からないため、アプリ側で同じ挙動を作る（決定 2 と同じ） |
 | 応答時間の差 | INVITE→200 が素の FreeSWITCH より約 90 ms 長いのは PBX 側（Lua + PostgreSQL）の処理として記録し、アプリ側では補正しない | 手順書の目的は PBX の処理時間を N ごとに見ることで、差そのものが記録対象 |
+
+## 画面の改修（docs/ui-ux-proposal.md の実施）で決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| 既定テーマ | `prefers-color-scheme` に追従し、ヘッダーのボタンで システム / ライト / ダーク を切替（localStorage に保存） | 提案書 7 節。手順書のスクリーンショットはライトのまま使え、スキルの推奨するダークも同じトークンで提供できる |
+| フォント | IBM Plex Sans と JetBrains Mono の欧文 woff2（OFL、各 3 ウェイト、計 136 KB）を同梱し、日本語はシステムフォント | 日本語サブセットは 1 ウェイトで 1 MB を超えるため同梱しない。CDN には依存しない |
+| チャート | uPlot 1.6.31（MIT、50 KB）を `ui/static/vendor/` に同梱。凡例は uPlot の HTML 凡例（カーソル位置の値）、色は CSS トークンから取得しテーマ切替で作り直す | 手描き Canvas の目盛・二軸・DPR・ツールチップを自作しない。アニメーションが無く reduced-motion に合う |
+| 事前チェックの状態 | `state.precheck_run` を `state.run` と分け、スナップショットに `precheck` を載せる | 事前チェック中に画面がラン中 UI に切り替わる問題（提案 F1）の根本原因 |
+| 段階実行の開始 | `/api/run/start` に `schedule` / `preset` を追加し、開始直後にスケジュールを適用 | 手順書の「5 → 10 → 20」を開始前に指定できる（提案 F6） |
+| 記録表との対応 | `/api/runs/{id}/rows` が xlsx と同じ `generic_rows()` を返し、詳細と比較に表示 | 画面に無い指標を xlsx で探す往復を無くす（提案 C4） |
+| 長いランの詳細 | `/api/runs/{id}?max_points=1500` でバケットごとの最大値を残して間引く | ピーク（RTP 遅れ、失敗）を消さずに描画量を抑える（提案 C8） |
+| URL | `location.hash`（`#run`, `#results/12`）でタブと詳細を同期 | サーバ側のルーティング変更なし |
+| ファイル構成 | `index.html`（テンプレート）/ `styles.css` / `app.js` / `charts.js` に分割。ビルド工程は入れない | 482 行の単一ファイルは保守しにくい。ES modules や bundler は不要 |
+| 画面の検査 | `tests/ui/check_ui.mjs`（Playwright + axe-core）で 375 / 768 / 1440 の横スクロール、ページエラー、serious 以上の違反を CI で確認 | 提案 6 節 |

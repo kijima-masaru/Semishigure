@@ -1,0 +1,10 @@
+{
+  "name": "semishigure-ui-checks",
+  "private": true,
+  "type": "module",
+  "description": "Playwright + axe-core checks for the Semishigure UI (node check_ui.mjs http://127.0.0.1:8080)",
+  "devDependencies": {
+    "axe-core": "4.10.3",
+    "playwright": "1.49.1"
+  }
+}
