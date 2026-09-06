@@ -10,7 +10,7 @@ PBX（FreeSWITCH / Asterisk / FusionPBX）に対する同時通話の負荷検�
 - 負荷を掛ける PBX に、このマシンから SIP（UDP 5060 など）と RTP が届くこと
 - 監視をする場合は PBX の ESL（FreeSWITCH）/ AMI（Asterisk）、または PBX ホストへの SSH（鍵認証）
 
-Docker は不要です。検証用の PBX を自分で立てる必要もありません（開発時の確認用に `deploy/` があります。`docs/development.md`）。
+Docker は不要です。対象は既に稼働している PBX で、このアプリのために PBX を立てる必要はありません。
 
 ## Windows デスクトップ版
 
@@ -113,11 +113,10 @@ semishigure pbx unprovision dev-local
 pbx:
   transport: tls          # udp | tcp | tls
   sip_port: 5061
-  tls_verify: false       # 自己署名の検証用 PBX。本番は true と tls_ca
+  tls_verify: false       # PBX の証明書が自己署名なら false。CA 発行なら true と tls_ca
 ```
 
-PBX プロファイルでは `sip_transport` / `sip_tls_port` / `tls_verify` / `tls_ca`。TLS では応答側の待ち受けに自己署名証明書を自動生成します（`~/.semishigure/tls/`。`pbx.tls_cert` / `tls_key` で差し替え）。
-検証用 FreeSWITCH / Asterisk は起動時に証明書を生成し、5061 で TLS を待ち受けます。RTP は UDP のままです（SRTP は未対応）。
+PBX プロファイルでは `sip_transport` / `sip_tls_port` / `tls_verify` / `tls_ca`。TLS では応答側の待ち受けに自己署名証明書を自動生成します（`~/.semishigure/tls/`。`pbx.tls_cert` / `tls_key` で差し替え）。RTP は UDP のままです（SRTP は未対応）。
 
 ## 通話ステップと記録表
 
