@@ -18,6 +18,8 @@ from semishigure import __version__
 from semishigure.core.controller import ScheduleStep, parse_schedule, preset_schedule
 from semishigure.core.run import ABSOLUTE_MAX_CONCURRENCY, ProdConfirmationRequired, Run
 from semishigure.core.store import RunStore
+from semishigure.pbx.adapter import make_adapter
+from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
 from semishigure.scenario.model import load_scenario, scenario_from_dict
 from semishigure.secrets import SecretError, SecretStore
 
@@ -27,6 +29,8 @@ STATIC = Path(__file__).resolve().parent.parent / "ui" / "static"
 
 class StartRequest(BaseModel):
     scenario: str
+    pbx_profile: str | None = None
+    monitor: bool = True
     target: int | None = None
     ramp_rate: float | None = None
     call_duration: float | None = None
@@ -62,11 +66,16 @@ class ScenarioSave(BaseModel):
     yaml: str
 
 
+class ProfileBody(BaseModel):
+    profile: dict[str, Any]
+
+
 class AppState:
     def __init__(self, scenario_dir: Path, store: RunStore | None):
         self.scenario_dir = scenario_dir
         self.store = store
         self.secrets = SecretStore()
+        self.profiles = ProfileStore()
         self.run: Run | None = None
         self.lock = asyncio.Lock()
         self.clients: set[WebSocket] = set()
@@ -114,7 +123,7 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         for p in state.scenario_files():
             try:
                 sc = load_scenario(p)
-                out.append({"file": p.name, "name": sc.name, "description": sc.description, "pbx": {"host": sc.pbx.host, "domain": sc.pbx.domain, "environment": sc.pbx.environment}, "presets": list(sc.load.presets), "target": sc.load.target_concurrency, "call_duration": sc.load.call_duration, "ramp_rate": sc.load.ramp_rate})
+                out.append({"file": p.name, "name": sc.name, "description": sc.description, "pbx_profile": sc.pbx_profile, "pbx": {"host": sc.pbx.host, "domain": sc.pbx.domain, "environment": sc.pbx.environment}, "presets": list(sc.load.presets), "target": sc.load.target_concurrency, "call_duration": sc.load.call_duration, "ramp_rate": sc.load.ramp_rate})
             except Exception as exc:  # noqa: BLE001
                 out.append({"file": p.name, "error": str(exc)})
         return out
@@ -138,6 +147,62 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         p.write_text(body.yaml, encoding="utf-8")
         return {"file": p.name}
 
+    # -- PBX profiles ------------------------------------------------------------
+
+    @app.get("/api/pbx/profiles")
+    async def list_profiles() -> dict:
+        return {"path": str(state.profiles.path), "profiles": [p.public() for p in state.profiles.load_all()], "fields": list(PbxProfile.__dataclass_fields__)}
+
+    @app.put("/api/pbx/profiles/{name}")
+    async def save_profile(name: str, body: ProfileBody) -> dict:
+        data = dict(body.profile)
+        data["name"] = name
+        for k, v in list(data.items()):
+            if "password" in k or "passphrase" in k:
+                if v and not str(v).startswith(("secret:", "env:", "literal:")):
+                    raise HTTPException(400, f"{k} must be a reference (secret:NAME), not a value")
+        try:
+            profile = PbxProfile.from_dict(data)
+        except TypeError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        state.profiles.upsert(profile)
+        return profile.public()
+
+    @app.delete("/api/pbx/profiles/{name}")
+    async def delete_profile(name: str) -> dict:
+        return {"deleted": state.profiles.delete(name)}
+
+    @app.post("/api/pbx/profiles/{name}/test")
+    async def test_profile(name: str) -> dict:
+        profile = state.profiles.get(name)
+        if profile is None:
+            raise HTTPException(404, "profile not found")
+        adapter = make_adapter(profile, build_executor(profile, state.secrets), state.secrets)
+        t0 = asyncio.get_running_loop().time()
+        try:
+            await adapter.connect()
+            st = await adapter.status()
+            pm = await adapter.process_metrics()
+            regs = await adapter.registrations() if hasattr(adapter, "registrations") else []
+            tail = await adapter.log_tail(5)
+            return {
+                "ok": True,
+                "connect_ms": round((asyncio.get_running_loop().time() - t0) * 1000, 1),
+                "adapter": adapter.describe(),
+                "status": {"version": st.version, "uptime": st.uptime, "sessions": st.sessions, "sessions_peak": st.sessions_peak, "sessions_max": st.sessions_max, "sps_max": st.sps_max},
+                "channels": await adapter.channels_count(),
+                "registrations": regs,
+                "process": {"pid": pm.pid, "cpu": pm.cpu_percent, "mem": pm.mem_percent, "threads": pm.threads, "rss_kb": pm.rss_kb, "top_threads": pm.top_threads[:5]},
+                "log_tail": tail,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
+        finally:
+            try:
+                await adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+
     # -- run control ------------------------------------------------------------
 
     @app.post("/api/run/start")
@@ -146,8 +211,13 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
             if state.run is not None and not state.run.finished:
                 raise HTTPException(409, "a run is already in progress")
             sc = load_scenario(state.scenario_path(req.scenario))
+            profile = None
+            if req.pbx_profile:
+                profile = state.profiles.get(req.pbx_profile)
+                if profile is None:
+                    raise HTTPException(404, f"PBX profile {req.pbx_profile!r} not found")
             try:
-                run = Run(sc, name=req.name, secrets=state.secrets, store=state.store, target=req.target, ramp_rate=req.ramp_rate, call_duration=req.call_duration, max_concurrency=req.max_concurrency, max_total_calls=req.max_total_calls, confirm_prod=req.confirm_prod, on_event=lambda kind, ev: None)
+                run = Run(sc, name=req.name, secrets=state.secrets, store=state.store, target=req.target, ramp_rate=req.ramp_rate, call_duration=req.call_duration, max_concurrency=req.max_concurrency, max_total_calls=req.max_total_calls, confirm_prod=req.confirm_prod, on_event=lambda kind, ev: None, profile=profile, profile_store=state.profiles, monitor_enabled=req.monitor)
             except ProdConfirmationRequired as exc:
                 raise HTTPException(428, str(exc)) from exc
             try:

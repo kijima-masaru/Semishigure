@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 2（負荷制御）まで完了**。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 3（PBX 接続と監視）まで完了**。
 
 ## 構成
 
@@ -18,6 +18,7 @@ semishigure/
   sip/        SIP 信号: message / sdp / auth / transport / transaction / dialog / endpoint / uac / uas
   media/      メディア境界 (base) と Python 実装 (engine): codec / wav / rtp / pump
   core/       call（通話記録・指標）, engine（配線と安全停止）, controller（負荷制御）, stats, store（SQLite）, run
+  pbx/        Executor（local / ssh）, ESL クライアント, FreeSWITCH アダプタ, PBX プロファイル, 監視
   api/        FastAPI（REST + WebSocket）
   ui/static/  Vue 3 の画面（CDN。届かない環境では同梱の vendor/vue.global.prod.js に切替）
   scenario/   シナリオ YAML モデル
@@ -68,6 +69,19 @@ semishigure serve --scenarios examples
 ```
 
 ランは `~/.semishigure/runs.sqlite3` に保存されます（`SEMISHIGURE_HOME` で変更）。実測は `docs/stage2-report.md`。
+
+## 段階 3 の使い方（PBX 接続と監視）
+
+```bash
+semishigure pbx init                      # ~/.semishigure/pbx_profiles.yaml の雛形を作る
+export SEMISHIGURE_SECRET_ESL=<ESL パスワード>   # または: semishigure secret set esl
+semishigure pbx list
+semishigure pbx test dev-local            # 接続・上限値・チャネル数・プロセス・ログ末尾
+semishigure load examples/dev-freeswitch.yaml --pbx-profile dev-ssh --schedule "5:60,20:60,8:60"
+```
+
+シナリオの `pbx_profile:` にプロファイル名を書くと、実行中に PBX ホストの channels / %CPU / スレッド / ログ / ESL イベントを 2 秒周期で取り、画面のグラフとログテールに出します。
+SSH の場合は鍵認証のみで、ESL はポートフォワードで届きます。実測は `docs/stage3-report.md`。
 
 ## 制約（共有事項 6 節）
 
