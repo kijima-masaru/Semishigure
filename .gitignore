@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+*.sqlite3
+*.db
+runs/
+*.log
+# secrets (never commit)
+secrets.enc
+master.key
+.env
+# recorded / generated audio
+audio/*.wav
+!audio/.gitkeep
+deploy/freeswitch/log/*
+!deploy/freeswitch/log/.gitkeep
+deploy/freeswitch/db/
+deploy/freeswitch/ca/*.crt
