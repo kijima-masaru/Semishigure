@@ -32,8 +32,14 @@ def run(*cmd: str) -> None:
 
 def main() -> int:
     if shutil.which("makensis") is None:
-        print("error: NSIS (makensis) is not on PATH", file=sys.stderr)
-        return 2
+        # standard install locations on Windows (winget/choco/installer) when not on PATH
+        for d in (r"C:\Program Files (x86)\NSIS", r"C:\Program Files\NSIS"):
+            if os.path.isfile(os.path.join(d, "makensis.exe")):
+                os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+                break
+        else:
+            print("error: NSIS (makensis) is not on PATH (Windows: winget install NSIS.NSIS / choco install nsis; Debian: apt install nsis)", file=sys.stderr)
+            return 2
     shutil.rmtree(WHEELS, ignore_errors=True)
     WHEELS.mkdir(parents=True)
     pip = [sys.executable, "-m", "pip"]
