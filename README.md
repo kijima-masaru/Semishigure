@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応・DTMF / REFER ステップ・記録表の xlsx 出力まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。SIP は UDP / TCP / TLS に対応しています。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応・DTMF / REFER ステップ・記録表の xlsx 出力まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。SIP は UDP / TCP / TLS に対応しています。同時 50 通話の容量確認は `docs/capacity.md`。
 
 ## 構成
 
@@ -129,6 +129,18 @@ semishigure load examples/dev-asterisk.yaml --pbx-profile asterisk-local --sched
 ```
 
 `type: asterisk` のプロファイルでは AMI（`Command` アクションとイベント）を使い、使えなければ `asterisk -rx` に落ちます。実測は `docs/stage5-asterisk-report.md`。
+
+## 画面
+
+`semishigure serve` で http://127.0.0.1:8080。実行（スライダー、事前チェック、監視、プラグイン）、シナリオ（YAML 編集）、PBX（プロファイル編集と Test）、結果（ラン一覧、詳細、記録表 xlsx）の 4 画面。
+
+## 開発
+
+```bash
+pip install -e ".[dev]" httpx
+ruff check semishigure tests
+pytest -q            # 51 件、PBX 不要（CI と同じ）
+```
 
 ## 制約（共有事項 6 節）
 
