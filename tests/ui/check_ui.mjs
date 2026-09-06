@@ -20,7 +20,7 @@ for (const w of [1440, 768, 375]) {
   page.on('console', (m) => { if (m.type() === 'error' && !/ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|cdn\.jsdelivr/.test(m.text())) fail(`console @${w}: ${m.text().slice(0, 200)}`); }); // the CDN copy of Vue may be unreachable; the vendored fallback is used then
   await page.goto(base + '/#run', { waitUntil: 'networkidle' });
   await page.waitForSelector('nav.tabs button');
-  for (const t of ['実行', 'シナリオ', 'PBX', '結果']) {
+  for (const t of ['ガイド', '実行', 'シナリオ', 'PBX', '結果']) {
     await page.getByRole('button', { name: t, exact: true }).click();
     await page.waitForTimeout(500);
     if (t === '結果') { const b = page.getByRole('button', { name: /の詳細$/ }).first(); if (await b.count()) { await b.click(); await page.waitForTimeout(800); } }

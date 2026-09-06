@@ -40,7 +40,7 @@ tests/               単体テストと UAC⇄UAS ループバックテスト（
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                   # 52 tests, PBX 不要
+pytest                                   # 53 tests, PBX 不要
 ```
 
 ## 検証環境（FreeSWITCH / Asterisk）
@@ -142,7 +142,9 @@ semishigure load examples/fusionpbx.yaml --schedule "5:40,20:40,8:40" --duration
 
 ## 画面
 
-`semishigure serve` で http://127.0.0.1:8080。実行 / シナリオ / PBX / 結果の 4 画面（URL は `#run` `#results/12` のように同期）。
+`semishigure serve` で http://127.0.0.1:8080。ガイド / 実行 / シナリオ / PBX / 結果の 5 画面（URL は `#guide` `#run` `#results/12` のように同期）。
+
+- ガイド（セットアップガイド）: PBX プロファイルが 1 つも無いときは最初に開きます。5 ステップで負荷検証まで進めます。1. PBX に接続（プロファイルの保存、ESL / AMI のパスワードを暗号化ストアへ、接続テスト）→ 2. 内線と番号（発信側・応答側の内線、着信グループ、パスワードの保存と解決の確認）→ 3. シナリオ（入力からサーバが YAML を生成）→ 4. 事前チェック（NG の項目ごとに確認点を表示）→ 5. 負荷検証（3 本で 1 分 / 段階 5→10→20 / 実行タブで手動）。入力は localStorage に保存され、パスワードの値は保存しません。
 
 - 実行: 手順書の順（1. 何を掛けるか → 2. どう上げるか（固定 N / 段階 / プリセット）→ 3. 記録）のフォーム、「この設定で実行します」の解決結果（host / env / 上限 / secret 名）、事前チェックの進行表示と結果。ラン中は目標 N のスライダーだけを主操作にし、状態バー（確立 / 接続中 / 失敗 / ステップ / 残り秒 / 自動減少）、指標タイル、uPlot のチャート（目標・確立・接続中・PBX channels・RTP 遅れ、ホバーで値）、通話一覧（フィルタ・ソート）、PBX ホスト（最終取得時刻と stale 表示、ログ tail）。「全通話を切る」「ランを停止」は最下部の危険ゾーンにあり確認ダイアログを経由する。終了後は結果 / xlsx / 再実行への導線。
 - シナリオ: YAML 編集と保存時の検証（エラーは欄の直下、フォーカス移動）。
@@ -150,6 +152,8 @@ semishigure load examples/fusionpbx.yaml --schedule "5:40,20:40,8:40" --duration
 - 結果: 検索・ソート・複数選択、詳細（記録表と同じ指標の表、チャート、前後のラン）、「並べて比較」（指標を列に、確立数を重ね描き）。
 
 ライト / ダークはシステム設定に追従し、ヘッダーのボタンで切り替え。フォント（IBM Plex Sans / JetBrains Mono の欧文）と uPlot は `ui/static/vendor/` に同梱しているので CDN は不要（Vue も同様にフォールバック）。画面の検査は `tests/ui/check_ui.mjs`（Playwright + axe-core、CI の `ui` ジョブ）。改修の経緯は `docs/ui-ux-proposal.md`。
+
+秘密情報の API（`GET /api/secrets` は名前だけ、`POST /api/secrets/{name}` は暗号化ストアへ保存、`POST /api/secrets/check` は解決できるかの真偽）は、ガイドから使うために追加したものです。値がサーバに送られるのは保存時だけで、応答に値が含まれることはありません。`serve` を 127.0.0.1 以外で待ち受ける場合は、この API があることを踏まえて TLS やアクセス制限を前段に置いてください。
 
 ## 開発
 

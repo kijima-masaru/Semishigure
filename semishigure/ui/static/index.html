@@ -33,6 +33,197 @@
   <p class="sr-only" role="status" aria-live="polite">{{ srSummary }}</p>
   <div v-if="toast" class="toast" :class="toast.kind" role="status">{{ toast.text }}</div>
 
+  <!-- ===================== ガイド ===================== -->
+  <main v-show="tab==='guide'" class="one">
+    <div class="panel">
+      <h2>セットアップガイド <span class="sub">· PBX への接続から負荷検証まで 5 ステップ</span><button class="sm quiet spread" @click="guideReset">最初からやり直す</button></h2>
+      <ol class="stepper" aria-label="手順">
+        <li v-for="(st, i) in guideSteps" :key="i"><button :aria-current="guide.step===i ? 'step' : null" :class="{done: guide.done[i]}" @click="guide.step=i" :disabled="i > guideMaxStep"><span class="no" aria-hidden="true"><template v-if="guide.done[i]">✓</template><template v-else>{{ i+1 }}</template></span>{{ st }}<span class="sr-only">{{ guide.done[i] ? '（完了）' : '' }}</span></button></li>
+      </ol>
+
+      <!-- step 1: PBX -->
+      <div class="guide" v-if="guide.step===0">
+        <form @submit.prevent="guideStep1" novalidate>
+          <h3>1. PBX に接続する</h3>
+          <p class="intro">負荷を掛ける PBX の SIP アドレスと、監視に使う ESL（FreeSWITCH）/ AMI（Asterisk）の接続先を登録します。パスワードは暗号化ストア（<code class="mono">{{ secretsInfo.file || '~/.semishigure/secrets.enc' }}</code>）に保存し、設定ファイルには名前だけを書きます。</p>
+          <div class="grid2">
+            <div class="field"><label for="g-name">プロファイル名</label><input id="g-name" type="text" v-model="guide.pbx.name" required></div>
+            <div class="field"><label for="g-type">PBX の種類</label><select id="g-type" v-model="guide.pbx.type" @change="guideTypeDefaults"><option value="freeswitch">FreeSWITCH（FusionPBX を含む）</option><option value="asterisk">Asterisk</option></select></div>
+            <div class="field"><label for="g-host">SIP アドレス（host）</label><input id="g-host" type="text" v-model="guide.pbx.host" placeholder="192.168.1.10" required aria-describedby="g-host-help"><div class="help" id="g-host-help">internal プロファイルが待ち受ける IP。FusionPBX は sofia status で確認</div></div>
+            <div class="field"><label for="g-port">SIP ポート</label><input id="g-port" type="number" inputmode="numeric" v-model.number="guide.pbx.sip_port"></div>
+            <div class="field"><label for="g-domain">SIP ドメイン</label><input id="g-domain" type="text" v-model="guide.pbx.domain" placeholder="pbx.example.test" aria-describedby="g-domain-help"><div class="help" id="g-domain-help">REGISTER / INVITE の To に使うドメイン。FusionPBX はテナントのドメイン名</div></div>
+            <div class="field"><label for="g-env">環境</label><select id="g-env" v-model="guide.pbx.environment"><option value="dev">dev</option><option value="staging">staging</option><option value="prod">prod（開始前の確認と上限 20）</option></select></div>
+            <div class="field"><label for="g-exec">PBX ホストへの接続</label><select id="g-exec" v-model="guide.pbx.executor"><option value="local">このマシンで PBX が動いている（local）</option><option value="ssh">別のホスト（SSH、鍵認証）</option></select></div>
+          </div>
+          <div class="grid2" v-show="guide.pbx.executor==='ssh'">
+            <div class="field"><label for="g-sshhost">SSH ホスト</label><input id="g-sshhost" type="text" v-model="guide.pbx.ssh_host" placeholder="空なら SIP アドレスと同じ"></div>
+            <div class="field"><label for="g-sshport">SSH ポート</label><input id="g-sshport" type="number" inputmode="numeric" v-model.number="guide.pbx.ssh_port"></div>
+            <div class="field"><label for="g-sshuser">SSH ユーザ</label><input id="g-sshuser" type="text" v-model="guide.pbx.ssh_user"></div>
+            <div class="field"><label for="g-sshkey">秘密鍵のパス</label><input id="g-sshkey" type="text" v-model="guide.pbx.ssh_key" placeholder="~/.ssh/id_ed25519"></div>
+          </div>
+          <details class="fold" :open="true"><summary>監視（ESL / AMI、プロセス、ログ）</summary><div class="fold-body">
+            <label class="check"><input type="checkbox" v-model="guide.pbx.monitor"> PBX ホストを監視する（channels、%CPU、スレッド数、ログ、イベント）</label>
+            <div class="grid2" v-show="guide.pbx.monitor">
+              <div class="field"><label for="g-eslhost">{{ guide.pbx.type==='asterisk' ? 'AMI' : 'ESL' }} アドレス</label><input id="g-eslhost" type="text" v-model="guide.pbx.esl_host" aria-describedby="g-eslhost-help"><div class="help" id="g-eslhost-help">PBX ホストから見たアドレス（SSH のときはポートフォワード）</div></div>
+              <div class="field"><label for="g-eslport">{{ guide.pbx.type==='asterisk' ? 'AMI' : 'ESL' }} ポート</label><input id="g-eslport" type="number" inputmode="numeric" v-model.number="guide.pbx.esl_port"></div>
+              <div class="field" v-if="guide.pbx.type==='asterisk'"><label for="g-amiuser">AMI ユーザ</label><input id="g-amiuser" type="text" v-model="guide.pbx.ami_user"></div>
+              <div class="field"><label for="g-eslsecret">パスワードの名前（secret:）</label><input id="g-eslsecret" type="text" v-model="guide.pbx.esl_secret" aria-describedby="g-eslsecret-help"><div class="help" id="g-eslsecret-help">{{ secretStatus(guide.pbx.esl_secret) }}</div></div>
+              <div class="field"><label for="g-eslpw">パスワードの値（保存するときだけ入力）</label><input id="g-eslpw" type="password" v-model="guideSecrets.esl" autocomplete="off" :placeholder="guide.pbx.type==='asterisk' ? 'manager.conf の secret' : '既定は ClueCon'"></div>
+              <div class="field"><label for="g-cli">CLI コマンド</label><input id="g-cli" type="text" v-model="guide.pbx.fs_cli" aria-describedby="g-cli-help"><div class="help" id="g-cli-help">{{ guide.pbx.type==='asterisk' ? 'asterisk（-rx で実行）。Docker なら docker exec <名前> asterisk' : 'fs_cli。Docker なら docker exec <名前> fs_cli' }}</div></div>
+              <div class="field"><label for="g-log">ログファイル</label><input id="g-log" type="text" v-model="guide.pbx.log_path"></div>
+            </div>
+          </div></details>
+          <div class="btns" style="margin-top:12px"><button type="submit" class="primary" :disabled="busy==='guide'" :aria-busy="busy==='guide'">保存して接続テスト</button><button type="button" class="quiet" @click="guideSkipMonitor" v-if="guide.pbx.monitor">監視なしで保存する</button></div>
+          <div class="result" v-if="guideResult[0]" :class="guideResult[0].ok ? 'ok' : 'bad'" role="status"><div>{{ guideResult[0].text }}</div><div class="tip" v-if="guideResult[0].tip">{{ guideResult[0].tip }}</div></div>
+        </form>
+        <aside class="hint">
+          <h4>PBX 側で必要なこと</h4>
+          <ul v-if="guide.pbx.type==='freeswitch'">
+            <li>SIP: internal プロファイルにこのマシンから届くこと（UDP 5060）。RTP のポート範囲（既定 16384〜32768）も通す</li>
+            <li>ESL: <code>autoload_configs/event_socket.conf.xml</code> の listen-ip と password。FusionPBX の既定は <code>ClueCon</code>、listen-ip は 127.0.0.1 なので別ホストからは SSH 経由にする</li>
+            <li>ログ: <code>/var/log/freeswitch/freeswitch.log</code> を読める権限（SSH ユーザか、このプロセス）</li>
+            <li>検証用の設定例: <code>deploy/freeswitch/README.md</code>、FusionPBX は <code>deploy/fusionpbx/README.md</code></li>
+          </ul>
+          <ul v-else>
+            <li>SIP: chan_pjsip のトランスポート（UDP 5060）にこのマシンから届くこと。RTP の範囲は <code>rtp.conf</code></li>
+            <li>AMI: <code>manager.conf</code> にユーザを作り、<code>read = system,call,command</code>、<code>write = command</code>、permit にこのマシン（またはローカル）を入れる</li>
+            <li>ログ: <code>/var/log/asterisk/full</code>（<code>logger.conf</code> で full を有効に）</li>
+            <li>検証用の設定例: <code>deploy/asterisk/README.md</code></li>
+          </ul>
+          <h4 style="margin-top:12px">接続テストで確認すること</h4>
+          <ul><li>ESL / AMI にログインできる</li><li>バージョン、max-sessions、現在の channels</li><li>プロセスの pid / %CPU / スレッド数（ps）</li><li>ログの末尾が読める</li></ul>
+        </aside>
+      </div>
+
+      <!-- step 2: extensions and secrets -->
+      <div class="guide" v-if="guide.step===1">
+        <form @submit.prevent="guideStep2" novalidate>
+          <h3>2. 内線と番号を決める</h3>
+          <p class="intro">発信側の内線 1 つと、応答側の内線を PBX に作っておきます。応答側は複数の内線を同時に鳴らす着信グループ（またはキュー）の宛先にすると、実運用に近い負荷になります。</p>
+          <div class="grid2">
+            <div class="field"><label for="g-caller">発信側の内線</label><input id="g-caller" type="text" v-model="guide.ext.caller" required></div>
+            <div class="field"><label for="g-dest">発信先の番号</label><input id="g-dest" type="text" v-model="guide.ext.destination" required aria-describedby="g-dest-help"><div class="help" id="g-dest-help">着信グループの番号か、応答側の内線</div></div>
+            <div class="field"><label for="g-answerers">応答側の内線（カンマ区切り）</label><input id="g-answerers" type="text" v-model="guide.ext.answerers" required aria-describedby="g-ans-help"><div class="help" id="g-ans-help">この内線に Semishigure が REGISTER して応答します。実機の電話機は使いません</div></div>
+            <div class="field"><label for="g-max">内線ごとの同時通話数</label><input id="g-max" type="number" inputmode="numeric" v-model.number="guide.ext.max_calls" min="1" aria-describedby="g-max-help"><div class="help" id="g-max-help">超えると 486 を返します（FusionPBX の limit_max と揃える）</div></div>
+          </div>
+          <h4 style="margin-top:12px;font-size:12px;color:var(--muted)">パスワード</h4>
+          <label class="check"><input type="checkbox" v-model="guide.ext.shared_secret"> すべての内線が同じパスワード</label>
+          <div class="grid2">
+            <div class="field"><label for="g-callersecret">発信側パスワードの名前（secret:）</label><input id="g-callersecret" type="text" v-model="guide.ext.caller_secret" aria-describedby="g-cs-help"><div class="help" id="g-cs-help">{{ secretStatus(guide.ext.caller_secret) }}</div></div>
+            <div class="field"><label for="g-callerpw">値（保存するときだけ入力）</label><input id="g-callerpw" type="password" v-model="guideSecrets.caller" autocomplete="off"></div>
+            <template v-if="!guide.ext.shared_secret">
+              <div class="field"><label for="g-anssecret">応答側パスワードの名前の接頭辞</label><input id="g-anssecret" type="text" v-model="guide.ext.answerer_secret" aria-describedby="g-as-help"><div class="help" id="g-as-help">内線ごとに「接頭辞_内線番号」（例 ext_9001）。{{ answererSecretNames.map(n => n + (secretsResolved[n] ? ' ✓' : ' ✗')).join('、') }}</div></div>
+              <div class="field"><label for="g-anspw">値（内線ごとにカンマ区切り、保存するときだけ）</label><input id="g-anspw" type="password" v-model="guideSecrets.answerers" autocomplete="off" placeholder="pw9001,pw9002,…"></div>
+            </template>
+          </div>
+          <details class="fold"><summary>このマシン側のポート（既定のままで可）</summary><div class="fold-body grid2">
+            <div class="field"><label for="g-cport">発信側 SIP ポート</label><input id="g-cport" type="number" inputmode="numeric" v-model.number="guide.ext.caller_port"></div>
+            <div class="field"><label for="g-aport">応答側 SIP ポート</label><input id="g-aport" type="number" inputmode="numeric" v-model.number="guide.ext.answerer_port" aria-describedby="g-aport-help"><div class="help" id="g-aport-help">PBX と同じマシンで FusionPBX を使う場合は 5082（5080 は external プロファイル）</div></div>
+            <div class="field"><label for="g-rtp1">RTP ポート（開始）</label><input id="g-rtp1" type="number" inputmode="numeric" v-model.number="guide.ext.rtp_start"></div>
+            <div class="field"><label for="g-rtp2">RTP ポート（終了）</label><input id="g-rtp2" type="number" inputmode="numeric" v-model.number="guide.ext.rtp_end"></div>
+          </div></details>
+          <div class="btns" style="margin-top:12px"><button type="submit" class="primary" :disabled="busy==='guide'" :aria-busy="busy==='guide'">パスワードを保存して確認</button></div>
+          <div class="result" v-if="guideResult[1]" :class="guideResult[1].ok ? 'ok' : 'bad'" role="status"><div>{{ guideResult[1].text }}</div><div class="tip" v-if="guideResult[1].tip">{{ guideResult[1].tip }}</div></div>
+        </form>
+        <aside class="hint">
+          <h4>PBX 側で用意するもの</h4>
+          <ol>
+            <li>発信側の内線 <code>{{ guide.ext.caller || '9100' }}</code>（認証ユーザ = 内線番号）</li>
+            <li>応答側の内線 <code>{{ guide.ext.answerers || '9001,9002,9003,9004' }}</code>。1 内線あたり {{ guide.ext.max_calls || 5 }} 通話まで同時に受けられるようにする（FusionPBX: limit_max）</li>
+            <li>着信グループ <code>{{ guide.ext.destination || '8001' }}</code>: 上の内線を同時に鳴らす（FusionPBX: Ring Groups で Simultaneous、Destination の Enabled を確認）</li>
+            <li>着信グループの通話制限を掛けるなら 20 程度（限界を測る目安）</li>
+          </ol>
+          <h4 style="margin-top:12px">パスワードの扱い</h4>
+          <ul>
+            <li>ここで入力した値は暗号化ストアに保存され、シナリオには <code>secret:名前</code> だけが書かれます</li>
+            <li>環境変数 <code>SEMISHIGURE_SECRET_名前</code> で渡すこともできます（CI やコンテナ向け）</li>
+            <li>コマンドで保存する場合は <code>semishigure secret set 名前</code></li>
+          </ul>
+        </aside>
+      </div>
+
+      <!-- step 3: scenario -->
+      <div class="guide" v-if="guide.step===2">
+        <form @submit.prevent="guideStep3" novalidate>
+          <h3>3. シナリオを作る</h3>
+          <p class="intro">ここまでの入力からシナリオ YAML を生成します。あとから「シナリオ」タブで編集できます（ヘッダー、通話ステップ、プラグインなど）。</p>
+          <div class="grid2">
+            <div class="field"><label for="g-sname">シナリオ名（ファイル名）</label><input id="g-sname" type="text" v-model="guide.scen.name" required></div>
+            <div class="field"><label for="g-dur">通話長（秒）</label><input id="g-dur" type="number" inputmode="numeric" v-model.number="guide.scen.call_duration" min="5"></div>
+            <div class="field"><label for="g-audio">送出する音声</label><select id="g-audio" v-model="guide.scen.audio"><option value="synth:60">合成音声（WAV 不要）</option><option value="wav">WAV ファイル（あとで YAML に書く）</option></select></div>
+          </div>
+          <label class="check"><input type="checkbox" v-model="guide.scen.plugins"> ログのパターン集計（log_patterns プラグイン）を有効にする</label>
+          <label class="check" v-if="guideScenarioExists"><input type="checkbox" v-model="guide.scen.overwrite"> 同名のシナリオを上書きする</label>
+          <div class="btns" style="margin-top:12px"><button type="submit" class="primary" :disabled="busy==='guide'" :aria-busy="busy==='guide'">シナリオを作成</button></div>
+          <div class="result" v-if="guideResult[2]" :class="guideResult[2].ok ? 'ok' : 'bad'" role="status"><div>{{ guideResult[2].text }}</div><pre class="yaml" v-if="guideResult[2].yaml">{{ guideResult[2].yaml }}</pre></div>
+        </form>
+        <aside class="hint">
+          <h4>生成される内容</h4>
+          <ul>
+            <li>pbx: {{ guide.pbx.host || '(host)' }}:{{ guide.pbx.sip_port }} / {{ guide.pbx.domain || '(domain)' }} / {{ guide.pbx.environment }}、プロファイル <code>{{ guide.pbx.name }}</code></li>
+            <li>caller: {{ guide.ext.caller }} → {{ guide.ext.destination }}（secret:{{ guide.ext.caller_secret }}）</li>
+            <li>answerer: {{ guide.ext.answerers }}（各 {{ guide.ext.max_calls }} 通話）</li>
+            <li>load: 目標 1、発信 1 本/秒、通話長 {{ guide.scen.call_duration }} 秒、プリセット A（5 → 10 → 20）と B（10 → 20 → 30）</li>
+            <li v-if="guide.pbx.monitor">monitor: 2 秒ごとに channels を取得</li>
+            <li v-if="guide.scen.plugins">plugins: log_patterns（WARNING の件数{{ guide.pbx.type==='freeswitch' ? '、A レグの寿命' : '' }}）</li>
+          </ul>
+        </aside>
+      </div>
+
+      <!-- step 4: precheck -->
+      <div class="guide" v-if="guide.step===3">
+        <div>
+          <h3>4. 事前チェック</h3>
+          <p class="intro">負荷を掛ける前に、REGISTER・1 本の発信と応答・両方向の RTP・BYE・PBX の監視とイベントを 1 回ずつ確認します（約 15 秒）。</p>
+          <div class="btns"><button class="primary" @click="guideStep4" :disabled="busy==='guide' || precheckRunning" :aria-busy="busy==='guide' || precheckRunning">{{ precheckRunning ? '確認中…' : '事前チェックを実行' }}</button></div>
+          <div v-if="precheckRunning" class="field" aria-live="polite"><div class="meta">事前チェック中… {{ precheckState.elapsed_s }} 秒</div><div class="progress" role="progressbar" :aria-valuenow="Math.min(100, Math.round(precheckProgress))" aria-valuemin="0" aria-valuemax="100"><i :style="{width: Math.min(100, precheckProgress) + '%'}"></i></div></div>
+          <div v-if="guideResult[3]" class="result" :class="guideResult[3].ok ? 'ok' : 'bad'" role="status">
+            <div>{{ guideResult[3].text }}</div>
+            <div class="table-wrap" style="margin-top:8px" v-if="guideResult[3].items"><table>
+              <thead><tr><th scope="col">結果</th><th scope="col">項目</th><th scope="col">詳細</th><th scope="col">NG のときの確認点</th></tr></thead>
+              <tbody><tr v-for="i in guideResult[3].items" :key="i.name" :class="{ng: !i.ok}"><td><ico :name="i.ok ? 'check' : 'x-circle'" :class="i.ok ? 'ok' : 'bad'"></ico><span class="sr-only">{{ i.ok ? 'OK' : 'NG' }}</span></td><td>{{ i.name }}</td><td class="mono wrap">{{ i.detail }}</td><td class="wrap">{{ i.ok ? '' : precheckHint(i.name) }}</td></tr></tbody>
+            </table></div>
+          </div>
+        </div>
+        <aside class="hint">
+          <h4>合格の条件</h4>
+          <ul><li>REGISTER が 200（応答側の内線ごと）</li><li>発信 → 応答が 200 で確立し、応答側の内線のどれかに着信している</li><li>RTP が両方向で 20 パケット以上、音量（RMS）がある</li><li>BYE が 200</li></ul>
+          <h4 style="margin-top:12px">監視の項目が NG のとき</h4>
+          <p>SIP の 4 項目が合格なら負荷検証は進められます。監視（ESL / AMI、イベント、プラグイン）の NG は PBX 側の channels や CPU が記録に残らないだけなので、「監視の NG を無視して進む」で先に進めます。</p>
+        </aside>
+      </div>
+
+      <!-- step 5: run -->
+      <div class="guide" v-if="guide.step===4">
+        <div>
+          <h3>5. 負荷検証を始める</h3>
+          <p class="intro">最初は小さな同時数で 1 回通し、記録表に残るところまで確認します。その後は「実行」タブで目標 N を段階的に上げていきます。</p>
+          <div class="plan" role="radiogroup" aria-label="プラン">
+            <label class="check"><input type="radio" v-model="guide.plan" value="small"><span class="d"><b>まず 3 本で 1 分</b><small>固定 N=3、発信 1 本/秒、通話長 {{ guide.scen.call_duration }} 秒。成功すれば結果タブに 1 件残ります</small></span></label>
+            <label class="check"><input type="radio" v-model="guide.plan" value="steps"><span class="d"><b>段階的に 5 → 10 → 20</b><small>各 {{ guide.scen.call_duration }} 秒。PBX の制限や 486、RTP の遅れがどこで出るかを見ます</small></span></label>
+            <label class="check"><input type="radio" v-model="guide.plan" value="manual"><span class="d"><b>実行タブで自分で設定する</b><small>シナリオを選んだ状態で実行タブに移ります</small></span></label>
+          </div>
+          <div class="field" v-if="guide.pbx.environment==='prod'"><label class="check bad"><input type="checkbox" v-model="guide.confirm_prod"> <span class="chip prod">PROD</span> 本番環境に負荷を掛けることを確認しました</label></div>
+          <div class="btns" style="margin-top:12px"><button class="primary" @click="guideStep5" :disabled="busy==='guide' || runActive" :aria-busy="busy==='guide'"><ico name="play"></ico>{{ guide.plan==='manual' ? '実行タブへ' : '開始する' }}</button></div>
+          <div class="result" v-if="guideResult[4]" :class="guideResult[4].ok ? 'ok' : 'bad'" role="status">{{ guideResult[4].text }}</div>
+        </div>
+        <aside class="hint">
+          <h4>ラン中に見るところ</h4>
+          <ul><li>状態バーの 確立 / 接続中 / 失敗。失敗が増えたら通話一覧の「失敗」フィルタで理由（486 / 503 など）を見る</li><li>応答側 486: 内線ごとの同時通話数に達している</li><li>RTP 遅れ 5 ms 超: このマシンの CPU 不足。同時数を下げるか別マシンで</li><li>自動減少: PBX が 486 / 503 を 3 回連続で返すと目標を下げます</li></ul>
+          <h4 style="margin-top:12px">終わったら</h4>
+          <ul><li>結果タブで「記録表と同じ指標」を確認し、xlsx を出力</li><li>同じ設定で N を上げて繰り返し、「並べて比較」で頭打ちの兆候を見る</li></ul>
+        </aside>
+      </div>
+
+      <div class="guide-nav">
+        <button class="quiet" @click="guide.step=Math.max(0, guide.step-1)" :disabled="guide.step===0">← 前へ</button>
+        <button @click="guide.step=Math.min(4, guide.step+1)" :disabled="guide.step===4 || !guide.done[guide.step]">次へ →</button>
+        <button class="quiet" v-if="guide.step===3 && guideResult[3] && !guideResult[3].ok && guideResult[3].sipOk" @click="guide.done[3]=true; guideSave(); guide.step=4">監視の NG を無視して進む</button>
+        <span class="meta spread" v-if="guideMaxStep>=4 && guide.done[4]">すべて完了しました。以降は「実行」タブから操作できます。</span>
+      </div>
+    </div>
+  </main>
+
   <!-- ===================== 実行 ===================== -->
   <main v-show="tab==='run'" :class="{one: false}">
     <div class="stack">
