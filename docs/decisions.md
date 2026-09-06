@@ -151,3 +151,13 @@
 | FusionPBX の DB 資格情報 | PBX ホストの `/etc/fusionpbx/config.conf` を読む。読めなければ `secret:` で受け取る | 追加の入力を減らす。`psql` の実行時に `PGPASSWORD` が環境変数として渡る点は README に明記 |
 | 反映 | 監視用の ESL / AMI（アダプタ）で `reloadxml` / `module reload res_pjsip.so`、使えなければ CLI（`fs_cli -x` / `asterisk -rx`、`extra.asterisk_conf` があれば `-C`） | 接続テストと同じ経路を使う |
 | 検証 | 素の FreeSWITCH（第 2 インスタンス、ESL 8022）、Asterisk 20、FusionPBX 5.5 の 3 系統で作成 → REGISTER → 着信グループ経由の通話 → 上限（486）→ 削除 → 設定の復元を確認 | 単体テストは一時ディレクトリに対する生成と復元 |
+
+## 利用者向けと開発者向けの切り分けで決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| 検証用 PBX の位置づけ | 開発と回帰確認のための道具。README は実際の PBX に対する使い方を主にし、`deploy/` の説明は `docs/development.md` に移す | 利用者が向き合うのは実際の PBX。Docker も検証用 PBX も利用者には不要 |
+| Docker 関連ファイル | `deploy/` に開発用として残す（未検証と明記）。リリース物には含めない | 開発環境でイメージを取得できず検証できていないが、手元で PBX を立てる選択肢として残す |
+| リリース物 | wheel には `semishigure` パッケージだけ（画面のベンダー同梱物、シナリオ雛形を含む）。`deploy/` `docs/` `examples/` `tests/` は含めない | `pip wheel` で確認 |
+| シナリオの置き場所 | `semishigure serve` の既定は `~/.semishigure/scenarios`（無ければ作る）。カレントに `examples/` があればそれを使う | インストールしただけで動く。開発時はリポジトリの例をそのまま使える |
+| シナリオの雛形 | パッケージ内の `scenario/template.yaml` | インストール後に `examples/` が無くても新規作成できる |

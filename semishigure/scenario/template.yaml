@@ -1,0 +1,33 @@
+# Semishigure のシナリオ雛形。パスワードは secret:NAME の参照で書き、値は暗号化ストアか
+# 環境変数 SEMISHIGURE_SECRET_NAME で渡します（画面のガイドで作ると自動で埋まります）。
+name: new-scenario
+description: caller -> ring group -> answerers
+# pbx_profile: my-pbx        # PBX プロファイル名（~/.semishigure/pbx_profiles.yaml）
+pbx:
+  host: 192.0.2.10           # PBX の SIP アドレス
+  sip_port: 5060
+  domain: pbx.example.test   # SIP ドメイン
+  caller_port: 5070          # このマシン側のポート
+  answerer_port: 5080
+  rtp_port_start: 20000
+  rtp_port_end: 20999
+  environment: dev           # dev | staging | prod
+caller:
+  auth_user: "9100"
+  auth_password_ref: secret:ext_9100
+  from_number: "9100"
+  destination: "8001"
+  audio: "synth:60"
+answerer:
+  extensions:
+    - { user: "9001", password_ref: secret:ext_9001, max_calls: 5 }
+    - { user: "9002", password_ref: secret:ext_9002, max_calls: 5 }
+  audio: "synth:60"
+load:
+  target_concurrency: 1
+  ramp_rate: 1/s
+  call_duration: 60s
+  presets:
+    A: { steps: [5, 10, 20] }
+monitor:
+  interval: 2s
