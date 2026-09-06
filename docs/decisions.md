@@ -56,3 +56,14 @@
 | B レグへのヘッダー転送 | Dial の pre-dial ハンドラ（`b(default^predial^1)`）で `X-Semishigure-Call` と `X-LANG` を追加 | FreeSWITCH は自動でコピーするが Asterisk はしない。応答側のグループ化は時間窓へのフォールバックでも動くが、ヘッダーがあれば確実 |
 | 着信グループの通話制限 | `GROUP()` / `GROUP_COUNT()` で 20 を超えたら `Busy()`（486） | FusionPBX の limit と同じ挙動。負荷側の自動減少が Asterisk でも働くことを確認 |
 | Asterisk の GPL | PBX 側のソフトとして使うだけで、アプリには組み込まない。`deploy/asterisk` は設定ファイルと Dockerfile のみ | 依存ライブラリの制約（GPL 不可）はアプリ本体に対するもの |
+
+## 段階 4（プラグイン機構）で決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| 段階 4 の位置づけ | Flatline 専用プラグインではなく、汎用のプラグイン機構と同梱プラグイン 5 種（`log_patterns` / `status_command` / `conf_override` / `ws_hook` / `webhook`）を実装。Flatline のケースは `examples/plugins-example.yaml` の設定例として示す | 検証環境がなく Flatline 固有コードは確認できない。汎用部品にしておけば他の PBX やサービスにも使え、Flatline は設定だけで組める |
+| フックの形 | `pre_run` / `post_run` / `on_call_established` / `on_call_ended` / `collect_metrics` / `parse_log_line` / `snapshot` / `report_rows`。すべて省略可能で、1 プラグインの例外はそのプラグインの `errors` に閉じ込める | 設計 3.5 のフック一覧に沿い、プラグインの不具合で負荷テストが止まらないようにする |
+| post_run の保証 | `SipEngine.shutdown_hooks` に登録し、通話の BYE と同じ経路（SIGINT / SIGTERM / 例外 / 通常停止）で必ず実行。二重実行は抑止 | 共有事項 6 節「異常終了時に conf 一時変更の復元」 |
+| conf_override の書き方 | XML の `<param name value>` はパラメータ名指定、それ以外は正規表現置換。バックアップは `<path>.semishigure.bak`、復元は `mv` で原子的に | FreeSWITCH の conf と Asterisk の ini 形式の両方に対応。復元が中断してもバックアップが残る |
+| ws_hook のプレースホルダ | `{var.NAME}`（uuid_getvar で取るチャネル変数）、`{header.NAME}`（発信 INVITE のヘッダー）、`{pbx_uuid}`、`{secret:NAME}` | loadtest_operator.py の「chat_uuid を取って接続し、9001 を待って openChat を送る」を設定だけで表せる。PBX 側の uuid は ESL / AMI の対応付けから得る |
+| 外部プラグイン | `module: パッケージ.モジュール:クラス` で任意のクラスを読み込む | エントリポイント登録より単純で、シナリオ YAML だけで完結する |

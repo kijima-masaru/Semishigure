@@ -198,6 +198,23 @@
         <div v-if="mon.errors && mon.errors.length" class="err">{{ mon.errors.join(' / ') }}</div>
         </template>
       </div>
+      <div class="panel" style="margin-top:14px" v-if="run && Object.keys(run.plugins||{}).length">
+        <h2>Plugins</h2>
+        <div class="grid2">
+          <div v-for="(p,name) in run.plugins" style="font-size:12.5px">
+            <b class="mono">{{ name }}</b> <span style="color:var(--muted)">{{ p.class }}</span>
+            <table>
+              <tr v-for="(v,k) in flatten(p)"><td class="mono" style="color:var(--muted)">{{ k }}</td><td class="mono">{{ typeof v === 'object' ? JSON.stringify(v) : v }}</td></tr>
+            </table>
+          </div>
+        </div>
+        <div v-if="Object.keys(run.plugin_metrics||{}).some(k=>k.includes('.'))" style="margin-top:8px">
+          <h2>plugin metrics (latest sample)</h2>
+          <div class="tiles">
+            <div class="tile" v-for="(v,k) in pluginMetrics"><div class="k">{{ k }}</div><div class="v small">{{ fmt(v) }}</div></div>
+          </div>
+        </div>
+      </div>
       <div class="panel" style="margin-top:14px" v-if="run">
         <h2>Calls ({{ run.calls.length }})</h2>
         <div class="scroll">
@@ -233,6 +250,8 @@ createApp({
     const runActive = computed(() => run.value && !run.value.finished);
     const selectedScenario = computed(() => scenarios.value.find(s => s.file === form.value.scenario));
     const presets = computed(() => selectedScenario.value ? (selectedScenario.value.presets || []) : []);
+    const pluginMetrics = computed(() => Object.fromEntries(Object.entries((run.value && run.value.plugin_metrics) || {}).filter(([k]) => k.includes('.'))));
+    const flatten = (obj, prefix = '') => { const out = {}; for (const [k, v] of Object.entries(obj || {})) { if (k === 'class' || k === 'output') continue; if (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length && Object.values(v).every(x => x && typeof x === 'object')) { Object.assign(out, flatten(v, prefix + k + '.')); } else { out[prefix + k] = v; } } return out; };
     const mon = computed(() => (run.value && run.value.monitor) ? run.value.monitor : { last: {}, log_level_counts: {}, top_threads: [], threads_by_name: {}, log_tail: [], series: [] });
     const activeEnv = computed(() => {
       const name = form.value.pbx_profile || (selectedScenario.value && selectedScenario.value.pbx_profile);
@@ -317,7 +336,7 @@ createApp({
       ctx.fillStyle = '#0f766e'; ctx.fillText('target (dashed)', 50, 12); ctx.fillStyle = '#15803d'; ctx.fillText('established', 150, 12); ctx.fillStyle = '#b45309'; ctx.fillText('est+pending', 230, 12); ctx.fillStyle = '#7c3aed'; ctx.fillText('RTP late max ms (right scale ' + Math.round(maxL / 1.1) + ')', 320, 12);
     }
     onMounted(async () => { await loadScenarios(); await loadProfiles(); await loadRuns(); connect(); });
-    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, mchart, mon, activeEnv, profiles, profilesPath, profileTest, testProfile, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
+    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, mchart, mon, activeEnv, profiles, profilesPath, profileTest, testProfile, pluginMetrics, flatten, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
   }
 }).mount('#app');
 </script>

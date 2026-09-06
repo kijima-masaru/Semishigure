@@ -1,0 +1,79 @@
+# Plugin examples. Copy the blocks you need into your scenario's `plugins:` section.
+# Every block is generic; the Flatline values are only an illustration of how a
+# service-specific test is assembled from the built-in plugins.
+name: plugins-example
+description: shows every built-in plugin; run with --pbx-profile so the PBX host is reachable
+pbx_profile: dev-local
+
+caller:
+  auth_user: "9100"
+  auth_password_ref: secret:ext
+  from_number: "9100"
+  destination: "8001"
+  headers: { X-LANG: en, X-ENABLE-TRANSCRIBE: "true", X-ENABLE-TRANSLATE: "true" }
+  audio: ../audio/speech_en.wav
+answerer:
+  extensions:
+    - { user: "9001", password_ref: secret:ext, max_calls: 5 }
+    - { user: "9002", password_ref: secret:ext, max_calls: 5 }
+  audio: ../audio/speech_ja.wav
+load: { target_concurrency: 2, ramp_rate: 1/s, call_duration: 60s }
+
+plugins:
+  # 1. Count / time / measure things in the PBX log (replaces collect_metrics.sh).
+  log_patterns:
+    key: "Session: ([0-9a-f-]+)"                    # correlation key for timers (first group)
+    counters:
+      - { name: main_lua_start, regex: "main\\.lua START" }
+      - { name: main_lua_end, regex: "main\\.lua END" }
+      - { name: reconnect, regex: "scheduling reconnect" }
+      - { name: http_429, regex: "\\b429\\b" }
+      - { name: transcribe_disabled, regex: "Transcribe is disabled" }
+    timers:
+      - { name: detect_lock, start: "待機モード解除", end: "言語検出ロック" }   # openChat -> language lock (s)
+    numbers:
+      - { name: play_delay_s, regex: "受信から([0-9.]+)s 後" }                # received -> playback start
+      - { name: tts_ttfb_s, regex: "TTFB=([0-9.]+)s" }
+      - { name: underruns, regex: "アンダーラン=([0-9]+)回" }
+
+  # 2. Periodic status command; several values per sample.
+  status_command:
+    api: "flatline_interpreter status"             # ESL/AMI api command (or cmd: "shell command")
+    first_line_as: version
+    fields:
+      - { name: ws_conns, regex: "ws conns[^0-9]*([0-9]+)" }
+      - { name: workers_tts, regex: "tts[^0-9]*([0-9]+)" }
+      - { name: net_loop_max_ms, regex: "net loop max[^0-9]*([0-9]+)" }
+      - { name: net_loop_over100ms, regex: "over100ms[^0-9]*([0-9]+)" }
+    keyvalue: true
+
+  # 3. Temporary config change for the run (pattern C-1); restored on stop, also on Ctrl-C.
+  conf_override:
+    enabled: false                                  # enable per run
+    files:
+      - path: /etc/freeswitch/autoload_configs/flatline_interpreter.conf.xml
+        params: { langid-min-chars: 100000 }
+    reload: 'fs_cli -x reloadxml'
+
+  # 4. Per-call WebSocket hook (replaces loadtest_operator.py): fetch a channel variable,
+  #    connect, wait for {"type":"senderror","code":9001}, then send openChat.
+  ws_hook:
+    enabled: false
+    url: "wss://chatapi.example/staging?chatuuid={var.chat_uuid}"
+    variables: { chat_uuid: chat_uuid }             # uuid_getvar <A-leg uuid> chat_uuid
+    wait_for: { type: senderror, code: 9001 }
+    wait_timeout: 60s
+    send: { type: openChat, "A-lang": "{header.X-LANG}", "B-lang": ja, leg: B }
+
+  # 5. HTTP notification of run/call events.
+  webhook:
+    enabled: false
+    url: https://example/hook
+    events: [pre_run, post_run]
+    headers: { Authorization: "Bearer {secret:hook_token}" }
+
+  # 6. Your own plugin: any importable class deriving semishigure.plugins.base.Plugin
+  my_service:
+    enabled: false
+    module: mypackage.semishigure_plugin:MyServicePlugin
+    option: value

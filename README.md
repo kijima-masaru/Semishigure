@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 3（PBX 接続と監視）まで完了し、段階 5 の Asterisk 対応を前倒しで実施済み**（段階 4 の Flatline プラグインは検証環境が用意でき次第）。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。
 
 ## 構成
 
@@ -22,7 +22,7 @@ semishigure/
   api/        FastAPI（REST + WebSocket）
   ui/static/  Vue 3 の画面（CDN。届かない環境では同梱の vendor/vue.global.prod.js に切替）
   scenario/   シナリオ YAML モデル
-  plugins/    サービスプラグイン（flatline は段階 4）
+  plugins/    プラグイン機構（base / registry / manager）と同梱プラグイン 5 種
   secrets.py  秘密情報ストア
   cli.py      コマンドライン
 deploy/freeswitch/   検証用 FreeSWITCH（Dockerfile / compose / conf）
@@ -83,6 +83,12 @@ semishigure load examples/dev-freeswitch.yaml --pbx-profile dev-ssh --schedule "
 
 シナリオの `pbx_profile:` にプロファイル名を書くと、実行中に PBX ホストの channels / %CPU / スレッド / ログ / ESL イベントを 2 秒周期で取り、画面のグラフとログテールに出します。
 SSH の場合は鍵認証のみで、ESL はポートフォワードで届きます。実測は `docs/stage3-report.md`。
+
+## プラグイン（段階 4）
+
+シナリオの `plugins:` にサービス固有の処理を足します。同梱は `log_patterns`（ログの集計）、`status_command`（status 出力の抽出）、
+`conf_override`（設定の一時変更と復元）、`ws_hook`（通話ごとの WebSocket 連携）、`webhook`（HTTP 通知）。
+独自クラスは `module: pkg.mod:Class` で読み込みます。書き方は `docs/plugins.md`、設定例は `examples/plugins-example.yaml`。
 
 ## Asterisk
 

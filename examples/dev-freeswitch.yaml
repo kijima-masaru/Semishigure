@@ -63,3 +63,19 @@ monitor:                      # PBX-side sampling (design §3.6); generic comman
       parse: "regex:Total items returned: (\\d+)"
     - name: load1             # 1-minute load average of the PBX host
       cmd: cut -d' ' -f1 /proc/loadavg
+
+plugins:
+  # generic FreeSWITCH log analysis: per-channel lifetime and warning count
+  log_patterns:
+    key: "^([0-9a-f-]{36})"                 # channel uuid at the start of the log line
+    counters:
+      - { name: warnings, regex: "\\[WARNING\\]" }
+      - { name: auth_challenges, regex: "SIP auth challenge" }
+    timers:
+      - { name: channel_lifetime, start: "New Channel sofia/internal/9100", end: "Close Channel sofia/internal/9100" }
+  status_command:
+    api: status
+    fields:
+      - { name: sessions_since_startup, regex: "(\\d+) session\\(s\\) since startup" }
+      - { name: sessions_peak, regex: "peak (\\d+)" }
+      - { name: idle_cpu, regex: "min idle cpu [0-9.]+/([0-9.]+)" }

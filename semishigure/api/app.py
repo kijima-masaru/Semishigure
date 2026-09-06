@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,7 @@ from semishigure.core.run import ABSOLUTE_MAX_CONCURRENCY, ProdConfirmationRequi
 from semishigure.core.store import RunStore
 from semishigure.pbx.adapter import make_adapter
 from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
+from semishigure.plugins.registry import describe_builtin
 from semishigure.scenario.model import load_scenario, scenario_from_dict
 from semishigure.secrets import SecretError, SecretStore
 
@@ -103,7 +105,19 @@ class AppState:
 
 def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = None) -> FastAPI:
     state = AppState(Path(scenario_dir), store)
-    app = FastAPI(title="Semishigure", version=__version__)
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        # server shutdown (SIGTERM / Ctrl-C): hang up every call, restore plugins, unregister
+        if state.run is not None and not state.run.finished:
+            log.warning("server shutting down with a run in progress: stopping it")
+            try:
+                await asyncio.wait_for(state.run.stop(), 30)
+            except Exception as exc:  # noqa: BLE001
+                log.error("run stop on shutdown failed: %s", exc)
+
+    app = FastAPI(title="Semishigure", version=__version__, lifespan=lifespan)
     app.state.semishigure = state
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
@@ -123,7 +137,7 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         for p in state.scenario_files():
             try:
                 sc = load_scenario(p)
-                out.append({"file": p.name, "name": sc.name, "description": sc.description, "pbx_profile": sc.pbx_profile, "pbx": {"host": sc.pbx.host, "domain": sc.pbx.domain, "environment": sc.pbx.environment}, "presets": list(sc.load.presets), "target": sc.load.target_concurrency, "call_duration": sc.load.call_duration, "ramp_rate": sc.load.ramp_rate})
+                out.append({"file": p.name, "name": sc.name, "description": sc.description, "pbx_profile": sc.pbx_profile, "plugins": [k for k, v in sc.plugins.items() if not (isinstance(v, dict) and v.get("enabled") is False)], "pbx": {"host": sc.pbx.host, "domain": sc.pbx.domain, "environment": sc.pbx.environment}, "presets": list(sc.load.presets), "target": sc.load.target_concurrency, "call_duration": sc.load.call_duration, "ramp_rate": sc.load.ramp_rate})
             except Exception as exc:  # noqa: BLE001
                 out.append({"file": p.name, "error": str(exc)})
         return out
@@ -146,6 +160,10 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
             raise HTTPException(400, f"invalid scenario: {exc}") from exc
         p.write_text(body.yaml, encoding="utf-8")
         return {"file": p.name}
+
+    @app.get("/api/plugins")
+    async def list_plugins() -> list[dict]:
+        return describe_builtin()
 
     # -- PBX profiles ------------------------------------------------------------
 
@@ -217,7 +235,7 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
                 if profile is None:
                     raise HTTPException(404, f"PBX profile {req.pbx_profile!r} not found")
             try:
-                run = Run(sc, name=req.name, secrets=state.secrets, store=state.store, target=req.target, ramp_rate=req.ramp_rate, call_duration=req.call_duration, max_concurrency=req.max_concurrency, max_total_calls=req.max_total_calls, confirm_prod=req.confirm_prod, on_event=lambda kind, ev: None, profile=profile, profile_store=state.profiles, monitor_enabled=req.monitor)
+                run = Run(sc, name=req.name, secrets=state.secrets, store=state.store, target=req.target, ramp_rate=req.ramp_rate, call_duration=req.call_duration, max_concurrency=req.max_concurrency, max_total_calls=req.max_total_calls, confirm_prod=req.confirm_prod, on_event=lambda kind, ev: None, profile=profile, profile_store=state.profiles, monitor_enabled=req.monitor, install_signal_handlers=False)
             except ProdConfirmationRequired as exc:
                 raise HTTPException(428, str(exc)) from exc
             try:
