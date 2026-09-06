@@ -16,7 +16,9 @@ from semishigure.pbx.adapter import PbxAdapter
 
 log = logging.getLogger(__name__)
 
-LEVEL_RE = re.compile(r"\[(WARNING|ERR|CRIT|ALERT|NOTICE|INFO|DEBUG)\]")
+# FreeSWITCH: "... [WARNING] ..."   Asterisk: "[ts] WARNING[pid] file.c: ..."
+LEVEL_RE = re.compile(r"\[(WARNING|ERR|CRIT|ALERT|NOTICE|INFO|DEBUG)\]|\b(WARNING|ERROR|NOTICE|VERBOSE|DEBUG)\[\d+\]")
+_LEVEL_ALIAS = {"ERROR": "ERR"}
 
 
 @dataclass
@@ -179,7 +181,8 @@ class Monitor:
         self.state.log_lines.append(line)
         m = LEVEL_RE.search(line)
         if m:
-            self.state.log_level_counts[m.group(1)] += 1
+            level = m.group(1) or m.group(2) or ""
+            self.state.log_level_counts[_LEVEL_ALIAS.get(level, level)] += 1
         if self.on_line:
             self.on_line(line)
         for plugin in self.plugins:

@@ -1,0 +1,26 @@
+# Semishigure development PBX (Asterisk 20).
+#   docker compose up -d --build
+services:
+  asterisk:
+    build: .
+    image: semishigure-ast:20
+    container_name: semishigure-ast
+    network_mode: host
+    environment:
+      SEMI_AST_DOMAIN: pbx.semishigure.test
+      SEMI_AST_SIP_IP: "0.0.0.0"
+      SEMI_AST_SIP_PORT: "5060"
+      # SEMI_AST_EXT_IP: "<host ip>"      # port-mapping mode only
+      SEMI_AST_RTP_START: "16384"
+      SEMI_AST_RTP_END: "32768"
+      SEMI_AST_MAXCALLS: "100"
+      SEMI_AST_RING_GROUP: "8001"
+      SEMI_AST_RING_GROUP_LIMIT: "20"
+      SEMI_AST_RING_SEP: "&"           # '&' simultaneous ring (Dial); sequential ring needs a dialplan change
+      SEMI_AST_EXT_PASSWORD: ${SEMI_AST_EXT_PASSWORD:-semishigure-dev}
+      SEMI_AST_AMI_PASSWORD: ${SEMI_AST_AMI_PASSWORD:-semishigure-ami}
+      SEMI_AST_SSH: "0"
+      # SEMI_AST_SSH_PUBKEY: "ssh-ed25519 AAAA... you@pc"
+    volumes:
+      - ./log:/var/log/asterisk
+    restart: unless-stopped

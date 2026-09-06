@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 3（PBX 接続と監視）まで完了**。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 3（PBX 接続と監視）まで完了し、段階 5 の Asterisk 対応を前倒しで実施済み**（段階 4 の Flatline プラグインは検証環境が用意でき次第）。
 
 ## 構成
 
@@ -26,6 +26,7 @@ semishigure/
   secrets.py  秘密情報ストア
   cli.py      コマンドライン
 deploy/freeswitch/   検証用 FreeSWITCH（Dockerfile / compose / conf）
+deploy/asterisk/     検証用 Asterisk 20（Dockerfile / compose / conf テンプレート）
 examples/            シナリオ例
 docs/                判断記録・段階レポート
 tests/               単体テストと UAC⇄UAS ループバックテスト（PBX 不要）
@@ -42,9 +43,9 @@ pip install -e ".[dev]"
 pytest                                   # 24 tests, PBX 不要
 ```
 
-## 検証環境（FreeSWITCH）
+## 検証環境（FreeSWITCH / Asterisk）
 
-`deploy/freeswitch/README.md` を参照（Docker compose、WSL2 推奨）。
+`deploy/freeswitch/README.md` と `deploy/asterisk/README.md` を参照（Docker compose、WSL2 推奨）。どちらも内線 9100 と 9001〜9004、着信グループ 8001（制限 20）、ドメイン `pbx.semishigure.test` で同じ構成です。
 
 ## 段階 1 の確認コマンド
 
@@ -82,6 +83,15 @@ semishigure load examples/dev-freeswitch.yaml --pbx-profile dev-ssh --schedule "
 
 シナリオの `pbx_profile:` にプロファイル名を書くと、実行中に PBX ホストの channels / %CPU / スレッド / ログ / ESL イベントを 2 秒周期で取り、画面のグラフとログテールに出します。
 SSH の場合は鍵認証のみで、ESL はポートフォワードで届きます。実測は `docs/stage3-report.md`。
+
+## Asterisk
+
+```bash
+semishigure call examples/dev-asterisk.yaml --duration 10                 # 1 通話の疎通
+semishigure load examples/dev-asterisk.yaml --pbx-profile asterisk-local --schedule "5:60,20:60,8:60"
+```
+
+`type: asterisk` のプロファイルでは AMI（`Command` アクションとイベント）を使い、使えなければ `asterisk -rx` に落ちます。実測は `docs/stage5-asterisk-report.md`。
 
 ## 制約（共有事項 6 節）
 

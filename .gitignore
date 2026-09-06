@@ -22,3 +22,6 @@ deploy/freeswitch/log/*
 !deploy/freeswitch/log/.gitkeep
 deploy/freeswitch/db/
 deploy/freeswitch/ca/*.crt
+deploy/asterisk/runtime/
+deploy/asterisk/log/*
+!deploy/asterisk/log/.gitkeep

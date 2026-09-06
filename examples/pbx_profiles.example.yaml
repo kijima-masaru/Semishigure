@@ -35,3 +35,20 @@ profiles:
     esl_password_ref: secret:esl
     fs_cli: fs_cli
     log_path: /var/log/freeswitch/freeswitch.log
+
+  - name: asterisk-local       # Asterisk (deploy/asterisk); AMI is used for events, `asterisk -rx` for CLI
+    type: asterisk
+    host: 127.0.0.1
+    sip_port: 5060
+    domain: pbx.semishigure.test
+    environment: dev
+    executor: local
+    esl_host: 127.0.0.1        # AMI address/port (manager.conf)
+    esl_port: 5038
+    esl_password_ref: secret:ami
+    fs_cli: asterisk           # docker: "docker exec semishigure-ast asterisk"
+    log_path: /var/log/asterisk/full
+    process_name: asterisk
+    extra:
+      ami_user: semishigure
+      # asterisk_conf: /path/to/asterisk.conf   # when Asterisk runs with -C (deploy/asterisk/run-native.sh)

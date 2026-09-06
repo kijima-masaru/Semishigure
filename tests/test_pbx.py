@@ -55,7 +55,7 @@ class FakeExecutor(Executor):
         return CommandResult(command, 0, "", "", 1.0)
 
     async def stream(self, command):
-        for ln in ("2026-09-06 00:00:00.000000 [WARNING] a", "2026-09-06 00:00:01.000000 [ERR] b", "x [INFO] c"):
+        for ln in ("2026-09-06 00:00:00.000000 [WARNING] a", "2026-09-06 00:00:01.000000 [ERR] b", "x [INFO] c", "[2026-09-06 03:57:37.752] WARNING[25939] ccss.c: asterisk style", "[2026-09-06 03:57:37.807] ERROR[25939] file.c: asterisk error"):
             yield ln
         await asyncio.sleep(10)
 
@@ -97,7 +97,7 @@ async def test_monitor_samples_and_log_levels():
     assert snap["samples"] >= 2
     assert snap["last"]["channels"] == 8 and snap["last"]["cpu_avg"] == 12.5
     assert snap["last"]["custom"]["ch"] == 8
-    assert snap["log_level_counts"] == {"WARNING": 1, "ERR": 1, "INFO": 1}
+    assert snap["log_level_counts"] == {"WARNING": 2, "ERR": 2, "INFO": 1}
     # interval CPU from /proc: +200 jiffies per ~0.2 s sample at CLK_TCK 100 -> far above the ps average
     assert snap["last"]["cpu"] > 100
     assert snap["threads_by_name"]["flatline-net"]["cpu"] > 100
@@ -162,3 +162,64 @@ def test_profile_store_roundtrip(tmp_path: Path):
     assert ex.kind == "ssh" and ex.username == "semi"
     assert build_executor(store.get("b")).kind == "local"
     assert store.delete("a") and store.get("a") is None
+
+
+class FakeAsteriskExecutor(FakeExecutor):
+    async def run(self, command, timeout=15.0):
+        self.commands.append(command)
+        if "core show version" in command:
+            return CommandResult(command, 0, "Asterisk 20.6.0~dfsg+~cs6.13.40431414-2build5 built by nobody\n", "", 1.0)
+        if "core show channels count" in command:
+            return CommandResult(command, 0, "24 active channels\n12 of 100 max active calls ( 12.00% of capacity)\n30 calls processed\n", "", 1.0)
+        if "core show settings" in command:
+            return CommandResult(command, 0, "  Maximum calls:               100 (Current 12)\n", "", 1.0)
+        if "core show uptime" in command:
+            return CommandResult(command, 0, "System uptime: 1 hour, 2 minutes\nLast reload: 1 hour\n", "", 1.0)
+        if "pjsip show contacts" in command:
+            return CommandResult(command, 0, " Contact:  9001/sip:9001@127.0.0.1:5080   abc  NonQual  nan\n Contact:  9002/sip:9002@127.0.0.1:5080   def  NonQual  nan\n\nObjects found: 2\n", "", 1.0)
+        if "core show channels concise" in command:
+            return CommandResult(command, 0, "PJSIP/9100-00000001!default!8001!1!Up!Dial!PJSIP/9001&PJSIP/9002!9100!!!3!12!(None)!123.1\n", "", 1.0)
+        return await super().run(command, timeout)
+
+
+def test_asterisk_adapter_parsing():
+    profile = PbxProfile(name="a", type="asterisk", extra={"asterisk_conf": "/x/asterisk.conf"})
+    ex = FakeAsteriskExecutor()
+    ad = make_adapter(profile, ex)
+
+    async def go():
+        await ad.connect()
+        st = await ad.status()
+        assert st.version.startswith("20.6.0") and st.sessions == 12 and st.sessions_max == 100 and st.uptime.startswith("1 hour")
+        assert await ad.channels_count() == 24
+        assert await ad.registrations() == ["9001", "9002"]
+        rows = await ad.channels()
+        assert rows[0]["channel"] == "PJSIP/9100-00000001" and rows[0]["state"] == "Up"
+        assert ad.profile.log_path == "/var/log/asterisk/full" and ad.profile.process_name == "asterisk"
+        await ad.close()
+
+    asyncio.run(go())
+    assert any(c.startswith("asterisk -C /x/asterisk.conf -rx ") for c in ex.commands)
+
+
+def test_asterisk_ami_event_translation():
+    from semishigure.pbx.adapter import AsteriskAdapter
+
+    ad = AsteriskAdapter(PbxProfile(name="a", type="asterisk"), FakeAsteriskExecutor())
+    seen: list[dict] = []
+
+    class FakeAmi:
+        connected = True
+        on_event = None
+
+        async def events_on(self, mask):
+            pass
+
+    ad.ami = FakeAmi()  # type: ignore[assignment]
+    asyncio.run(ad.esl_subscribe(seen.append))
+    ad.ami.on_event({"Event": "Newchannel", "Channel": "PJSIP/9100-00000001", "Uniqueid": "u1", "ChanVariable(SEMI_CALL)": "c1"})
+    ad.ami.on_event({"Event": "Newstate", "Channel": "PJSIP/9100-00000001", "Uniqueid": "u1", "ChannelStateDesc": "Up", "ChanVariable(SEMI_CALL)": "c1"})
+    ad.ami.on_event({"Event": "Hangup", "Channel": "PJSIP/9002-00000003", "Uniqueid": "u3", "Cause-txt": "Answered elsewhere", "ChanVariable(SEMI_CALL)": "c1"})
+    assert [e["Event-Name"] for e in seen] == ["CHANNEL_CREATE", "CHANNEL_ANSWER", "CHANNEL_HANGUP_COMPLETE"]
+    assert seen[0]["Call-Direction"] == "inbound" and seen[2]["Call-Direction"] == "outbound"
+    assert seen[0]["variable_sip_h_X-Semishigure-Call"] == "c1"
