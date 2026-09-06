@@ -8,6 +8,7 @@
     "x-circle": '<circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
     warning: '<path d="M8 1.8 15 14H1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v4M8 11.6v.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
     play: '<path d="M4 2.5v11l9-5.5z" fill="currentColor"/>',
+    update: '<path d="M8 2v8M4.8 7l3.2 3.2L11.2 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 11v2.5h11V11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>',
     stop: '<rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/>',
     sun: '<circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
     moon: '<path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
@@ -26,7 +27,7 @@
   const LEVEL_RE = /\[(EMERG|ALERT|CRIT|ERR|WARNING|NOTICE|INFO|DEBUG)\]|(ERROR|WARNING|NOTICE|VERBOSE|DEBUG)\[\d+\]/;
   const levelOf = (line) => { const m = LEVEL_RE.exec(line || ""); const l = m ? (m[1] || m[2]) : ""; return l === "ERROR" ? "ERR" : l; };
   // in the order things are set up and used: connect the PBX, write a scenario, run, look at results
-  const TABS = [{ id: "guide", label: "ガイド" }, { id: "profiles", label: "PBX" }, { id: "scenarios", label: "シナリオ" }, { id: "run", label: "実行" }, { id: "results", label: "結果" }];
+  const TABS = [{ id: "guide", label: "セットアップガイド" }, { id: "profiles", label: "PBX設定" }, { id: "scenarios", label: "シナリオ設定" }, { id: "run", label: "負荷検証 実行" }, { id: "results", label: "負荷検証 結果" }, { id: "debug", label: "デバッグ" }];
   const NUMERIC_FIELDS = ["sip_port", "sip_tls_port", "ssh_port", "esl_port", "rtp_port_start", "rtp_port_end", "max_concurrency"];
   const PROFILE_GROUPS = [
     { title: "基本", fields: ["name", "type", "host", "domain", "environment", "max_concurrency", "notes"] },
@@ -108,7 +109,7 @@
 
       // ---- navigation (hash) ----
       function setTab(t) { tab.value = t; const h = t === "results" && detail.value ? "#results/" + detail.value.id : "#" + t; if (location.hash !== h) history.replaceState(null, "", h); }
-      function readHash() { const m = /^#(guide|run|scenarios|profiles|results)(?:\/(\d+))?/.exec(location.hash || ""); if (!m) return; tab.value = m[1]; if (m[2]) openRun(Number(m[2]), true); }
+      function readHash() { const m = /^#(guide|run|scenarios|profiles|results|debug)(?:\/(\d+))?/.exec(location.hash || ""); if (!m) return; tab.value = m[1]; if (m[2]) openRun(Number(m[2]), true); }
       window.addEventListener("hashchange", readHash);
 
       // ---- helpers ----
@@ -480,6 +481,59 @@
       }
       function rebuildCharts() { if (chart) { chart.destroy(); chart = null; } if (mchart) { mchart.destroy(); mchart = null; } drawLive(); if (detail.value) { if (dchart) { dchart.destroy(); dchart = null; } drawDetail(); } }
       watch(run, (v, old) => { if (!v && old) { if (chart) { chart.destroy(); chart = null; } if (mchart) { mchart.destroy(); mchart = null; } } });
+      // ---- デバッグ: the app's own log, copyable ----
+      const debug = ref({ env: [], lines: [], auto: false, copied: "", loaded: false }), clientLog = ref([]), dbgEl = ref(null);
+      let debugTimer = null;
+      const debugText = computed(() => debug.value.lines.join("\n"));
+      async function loadDebug() { try { const r = await api("/api/debug/log?lines=1000", undefined, { quiet: true }); debug.value.env = r.env; debug.value.lines = r.lines; debug.value.loaded = true; nextTick(() => { if (dbgEl.value) dbgEl.value.scrollTop = dbgEl.value.scrollHeight; }); } catch (e) { /* server down: keep what we have */ } }
+      function debugReport() {
+        const head = ["Semishigure デバッグ情報", ...debug.value.env.map(([k, v]) => `${k}: ${v}`), `画面: ${navigator.userAgent}`, `取得: ${new Date().toISOString()}`, ""];
+        const client = clientLog.value.length ? ["--- 画面側のエラー ---", ...clientLog.value.map((e) => `${e.at} ${e.text}`), ""] : [];
+        return [...head, ...client, "--- ログ ---", ...debug.value.lines].join("\n");
+      }
+      async function copyDebug() {
+        const text = debugReport();
+        try { await navigator.clipboard.writeText(text); debug.value.copied = `コピーしました（${text.length} 文字）`; }
+        catch (e) { const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); debug.value.copied = ok ? `コピーしました（${text.length} 文字）` : "コピーできませんでした。ログ欄を選択してコピーしてください"; }
+        setTimeout(() => { debug.value.copied = ""; }, 4000);
+      }
+      function noteClientError(text) { clientLog.value.push({ at: hhmmss(Date.now() / 1000), text }); if (clientLog.value.length > 200) clientLog.value.shift(); fetch("/api/debug/client", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: "画面: " + text }) }).catch(() => {}); }
+      window.addEventListener("error", (ev) => noteClientError((ev.message || "error") + (ev.filename ? ` (${ev.filename.split("/").pop()}:${ev.lineno})` : "")));
+      window.addEventListener("unhandledrejection", (ev) => noteClientError("unhandled rejection: " + String((ev.reason && (ev.reason.message || ev.reason)) || "")));
+      watch(tab, (t) => { if (t === "debug") loadDebug(); });
+      watch(() => debug.value.auto, (on) => { clearInterval(debugTimer); debugTimer = null; if (on) debugTimer = setInterval(() => { if (tab.value === "debug") loadDebug(); }, 3000); });
+
+      // ---- 更新: newest release on GitHub; the desktop build installs it by itself ----
+      const update = ref({ checked: false, busy: false, newer: false, latest: "", current: "", can_install: false, html_url: "", error: "", installing: false, notes: "" });
+      const updateTitle = computed(() => update.value.installing ? "更新中" : update.value.newer ? `新しい版 ${update.value.latest} があります（現在 ${update.value.current}）。押すと更新します` : update.value.error ? `更新の確認: ${update.value.error}` : "最新版かどうか確認する");
+      async function checkUpdate(manual) {
+        if (update.value.busy || update.value.installing) return;
+        update.value.busy = true;
+        try {
+          const r = await api("/api/update/check" + (manual ? "?force=true" : ""), undefined, { quiet: true });
+          Object.assign(update.value, { checked: true, newer: !!r.newer, latest: r.latest || "", current: r.current || "", can_install: !!r.can_install, html_url: r.html_url || "", error: r.error || "", notes: r.notes || "" });
+          if (r.error) { if (manual) showToast("最新版を確認できません: " + r.error, "bad"); return; }
+          if (!r.newer) { if (manual) showToast(`最新版です（${r.current}）`); return; }
+          await offerUpdate();
+        } catch (e) { if (manual) showToast("最新版を確認できません: " + (e.message || e), "bad"); }
+        finally { update.value.busy = false; }
+      }
+      async function offerUpdate() {
+        const u = update.value;
+        if (u.can_install) {
+          const ok = await confirmDialog({ title: `新しい版 ${u.latest} に更新しますか？`, lines: [`現在の版は ${u.current} です。`, "インストーラをダウンロードして検証し、アプリをいったん閉じて更新します。終わると自動で再び開きます。", run.value && !run.value.finished ? "実行中のランがあるので、先に止めてください。" : "所要時間は 1 分ほどです。"], confirmLabel: "今すぐ更新する" });
+          if (ok) await installUpdate();
+        } else {
+          const ok = await confirmDialog({ title: `新しい版 ${u.latest} があります`, lines: [`現在の版は ${u.current} です。`, "この起動方法では自動更新できません。リリースページからインストーラを取得してください。"], confirmLabel: "リリースページを開く" });
+          if (ok && u.html_url) window.open(u.html_url, "_blank", "noopener");
+        }
+      }
+      async function installUpdate() {
+        update.value.installing = true;
+        try { await api("/api/update/install", {}, { quiet: true }); }
+        catch (e) { update.value.installing = false; showToast("更新できませんでした: " + japanese(e), "bad"); }
+      }
+
       function connect() {
         ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
         ws.onopen = () => { connected.value = true; };
@@ -498,10 +552,10 @@
       watch(activeEnv, (e) => { if (e === "prod") form.value.max_concurrency = Math.min(form.value.max_concurrency, 20); });
       watch(tab, (t) => { if (t === "results") nextTick(() => { if (dchart) dchart.resize(); if (cchart) cchart.resize(); }); if (t === "run") nextTick(() => { if (chart) chart.resize(); if (mchart) mchart.resize(); }); });
 
-      onMounted(async () => { applyTheme(); await loadScenarios(); await loadProfiles(); await loadRuns(); await loadSecrets(); await loadProvision(); readHash(); if (!location.hash && !profiles.value.length) setTab("guide"); connect(); });
+      onMounted(async () => { applyTheme(); await loadScenarios(); await loadProfiles(); await loadRuns(); await loadSecrets(); await loadProvision(); readHash(); if (!location.hash && !profiles.value.length) setTab("guide"); connect(); if (tab.value === "debug") loadDebug(); setTimeout(() => checkUpdate(false), 1500); });
 
       return {
-        tabs: TABS, tab, setTab, connected, lastUpdate, pbxStatus, run, precheckRunning, precheckState, precheckProgress, precheckResult, precheckNg, mmss, hhmmss, theme, themeLabel, cycleTheme,
+        tabs: TABS, tab, setTab, connected, lastUpdate, pbxStatus, run, debug, clientLog, dbgEl, debugText, loadDebug, copyDebug, update, updateTitle, checkUpdate, installUpdate, precheckRunning, precheckState, precheckProgress, precheckResult, precheckNg, mmss, hhmmss, theme, themeLabel, cycleTheme,
         alert, stale, staleFor, ctl, backoffText, srSummary, toast, runActive, runFinished, form, fieldErrors, scenarios, scenarioDir, selectedScenario, profiles, presets, effectiveCap, activeEnv,
         startRun, runPrecheck, busy, restartSame, prodBox, setTargetDebounced, setTarget, adjust, pending, scheduleText, schedule, runPresets, preset, clearSchedule, rate, setRate, pause, resume, burstTarget, burst,
         extList, eventsDesc, kindOf, hangupAll, stopRun, resolved, testProfile, profileTest, modeText, recentRuns, openRun, ts, fmt, n, ago, nextStep, busyRejects, failText, answeredText, mon, monStale, monAge,

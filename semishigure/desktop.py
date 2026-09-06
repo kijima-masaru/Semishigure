@@ -48,13 +48,13 @@ def _free_port(preferred: int = 8080) -> int:
 class DesktopServer:
     """uvicorn in a daemon thread; ``stop()`` runs the app's shutdown (stops runs)."""
 
-    def __init__(self, port: int, scenario_dir: Path, store_path: Path | None):
+    def __init__(self, port: int, scenario_dir: Path, store_path: Path | None, request_exit=None):
         import uvicorn
 
         from semishigure.api.app import create_app
         from semishigure.core.store import RunStore
 
-        app = create_app(scenario_dir=scenario_dir, store=RunStore(store_path) if store_path else None)
+        app = create_app(scenario_dir=scenario_dir, store=RunStore(store_path) if store_path else None, desktop=True, request_exit=request_exit)
         self.config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", loop="asyncio")
         self.server = uvicorn.Server(self.config)
         self.thread = threading.Thread(target=self.server.run, name="semishigure-server", daemon=True)
@@ -114,7 +114,7 @@ def _app_browser() -> str | None:
     return next((c for c in candidates if c and os.path.isfile(c)), None)
 
 
-def _open_window(url: str, home: Path) -> bool:
+def _open_window(url: str, home: Path, stop: threading.Event | None = None) -> bool:
     """Show the UI in an application window and return when it is closed.
 
     Returns False, after logging why, when no window can be shown: the caller
@@ -149,7 +149,11 @@ def _open_window(url: str, home: Path) -> bool:
     try:
         rc = proc.wait(timeout=3)
     except subprocess.TimeoutExpired:
-        proc.wait()
+        while proc.poll() is None:
+            if stop is not None and stop.wait(0.5):
+                log.info("closing the application window (exit requested: update)")
+                proc.terminate()
+                break
         log.info("application window closed")
         return True
     log.warning("application window exited immediately (code %s): using the default browser", rc)
@@ -160,7 +164,8 @@ def run(window: bool = True, port: int | None = None, open_browser: bool = True)
     home = DEFAULT_DIR
     _log_setup(home)
     scenario_dir = Path(os.environ.get("SEMISHIGURE_SCENARIOS") or (home / "scenarios"))
-    server = DesktopServer(port or _free_port(), scenario_dir, home / "runs.sqlite3")
+    stop = threading.Event()  # set by the server when an update was started: close the window, exit
+    server = DesktopServer(port or _free_port(), scenario_dir, home / "runs.sqlite3", request_exit=stop.set)
     log.info("Semishigure %s starting on %s (home %s, python %s)", __version__, server.url, home, sys.executable)
     try:
         server.start()
@@ -169,7 +174,7 @@ def run(window: bool = True, port: int | None = None, open_browser: bool = True)
         _alert(f"Semishigure を起動できません: {exc}\n詳細: {home / 'desktop.log'}")
         return 1
     try:
-        if window and _open_window(server.url, home):
+        if window and _open_window(server.url, home, stop):
             return 0
         if open_browser and not os.environ.get("SEMISHIGURE_NO_BROWSER"):
             webbrowser.open(server.url)
@@ -179,7 +184,7 @@ def run(window: bool = True, port: int | None = None, open_browser: bool = True)
             _info(f"画面を既定のブラウザで開きました: {server.url}\n\nこの OK を押すと Semishigure を終了します。\n（Microsoft Edge か Google Chrome があればアプリ窓で開きます。詳細: {home / 'desktop.log'}）")
             return 0
         try:
-            while server.thread.is_alive():
+            while server.thread.is_alive() and not stop.is_set():
                 time.sleep(0.5)
         except KeyboardInterrupt:
             pass
