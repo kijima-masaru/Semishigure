@@ -36,6 +36,38 @@ jobs:
         with:
           name: Semishigure-windows-installer
           path: build/nsis/*.exe
+      - name: Smoke test the installer (silent install, launch the Start Menu target, reach the UI)
+        shell: pwsh
+        env:
+          SEMISHIGURE_NO_BROWSER: "1"
+        run: |
+          $exe = (Get-ChildItem build/nsis/*.exe | Select-Object -First 1).FullName
+          $p = Start-Process -FilePath $exe -ArgumentList "/S" -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          $inst = @("$env:LOCALAPPDATA\Programs\Semishigure", "$env:ProgramFiles\Semishigure") | Where-Object { Test-Path "$_\Semishigure.launch.pyw" } | Select-Object -First 1
+          if (-not $inst) { Write-Error "install directory not found"; exit 1 }
+          "installed in $inst"; Get-ChildItem $inst | Select-Object Name, Length
+          $proc = Start-Process -FilePath "$inst\Python\pythonw.exe" -ArgumentList "`"$inst\Semishigure.launch.pyw`"" -PassThru
+          $log = "$env:USERPROFILE\.semishigure\desktop.log"
+          $url = $null
+          foreach ($i in 1..40) {
+            Start-Sleep 1
+            if (Test-Path $log) {
+              $m = Select-String -Path $log -Pattern "starting on (http://[^ ]+)" | Select-Object -Last 1
+              if ($m) { $url = $m.Matches[0].Groups[1].Value }
+            }
+            if ($url) { try { $r = Invoke-WebRequest "$($url)api/state" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { break } } catch {} }
+            if ($proc.HasExited) { break }
+          }
+          foreach ($f in @($log, "$env:APPDATA\Semishigure.launch.pyw.log")) { if (Test-Path $f) { "===== $f"; Get-Content $f } else { "(no file) $f" } }
+          "launcher exited: $($proc.HasExited) code: $($proc.ExitCode)"
+          if (-not $url) { Write-Error "no server URL in desktop.log"; exit 1 }
+          $ui = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 5
+          if ($ui.Content -notmatch "Semishigure") { Write-Error "UI not served"; exit 1 }
+          "UI reachable at $url (ui $($ui.Content.Length) bytes)"
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          Get-Process -Name pythonw, python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
       - name: Check that the tag matches the package version
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')
         shell: pwsh
