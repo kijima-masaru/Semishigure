@@ -74,7 +74,24 @@ jobs:
           $ui = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 5
           if ($ui.Content -notmatch "Semishigure") { Write-Error "UI not served"; exit 1 }
           "UI reachable at $url (ui $($ui.Content.Length) bytes)"
-          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          # ---- self-update, end to end: the updater child waits for the app to exit, installs, restarts it
+          $upd = "$env:USERPROFILE\.semishigure\updates"; New-Item -ItemType Directory -Force $upd | Out-Null
+          Copy-Item $exe "$upd\Semishigure-test-setup.exe"
+          $before = @(Select-String -Path $log -Pattern "starting on").Count
+          $updater = Start-Process -FilePath "$inst\Python\python.exe" -ArgumentList "-m","semishigure.update","--apply","$upd\Semishigure-test-setup.exe","--pid","$($proc.Id)","--install-dir","$inst","--launcher","$inst\Semishigure.launch.pyw","--pythonw","$inst\Python\pythonw.exe","--log","$upd\update.log","--wait-timeout","120" -PassThru -WindowStyle Hidden
+          Start-Sleep 3
+          Stop-Process -Id $proc.Id -Force   # the application exits (as it does after 'update now')
+          foreach ($i in 1..150) { Start-Sleep 1; if ((Test-Path "$upd\update.log") -and (Select-String -Path "$upd\update.log" -Pattern " done$" -Quiet)) { break } }
+          "===== update.log"; Get-Content "$upd\update.log"
+          if (-not (Select-String -Path "$upd\update.log" -Pattern "installer exit code 0" -Quiet)) { Write-Error "the updater did not install successfully"; exit 1 }
+          $ok = $false
+          foreach ($i in 1..60) {
+            Start-Sleep 1
+            $ms = @(Select-String -Path $log -Pattern "starting on (http://[^ ]+)")
+            if ($ms.Count -gt $before) { $url2 = $ms[-1].Matches[0].Groups[1].Value; try { $r = Invoke-WebRequest "$($url2)api/state" -UseBasicParsing -TimeoutSec 2; if ($r.StatusCode -eq 200) { $ok = $true; break } } catch {} }
+          }
+          if (-not $ok) { Get-Content $log; Write-Error "the application did not come back after the update"; exit 1 }
+          "application restarted after the update at $url2"
           Get-Process -Name pythonw, python -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
       - name: Check that the tag matches the package version
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')

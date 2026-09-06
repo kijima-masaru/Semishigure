@@ -235,6 +235,7 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
     @app.get("/api/debug/log")
     async def debug_log(lines: int = 500) -> dict:
         desktop_log = DEFAULT_DIR / "desktop.log"
+        update_log = DEFAULT_DIR / "updates" / "update.log"
         env = [
             ["Ver.", __version__],
             ["OS", platform.platform()],
@@ -243,10 +244,18 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
             ["データの場所", str(DEFAULT_DIR)],
             ["シナリオの場所", str(state.scenario_dir)],
             ["ログファイル", str(desktop_log) if desktop_log.exists() else "（無し: このバッファのみ）"],
+            ["更新ログ", str(update_log) if update_log.exists() else "（無し）"],
             ["PID", str(os.getpid())],
             ["ラン", (state.run.name + ("（終了）" if state.run.finished else "（実行中）")) if state.run else "なし"],
         ]
-        return {"lines": state.log.tail(max(1, min(lines, 3000))), "env": env}
+        out = state.log.tail(max(1, min(lines, 3000)))
+        if update_log.exists():
+            try:
+                tail = update_log.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+                out = out + ["--- update.log ---", *tail]
+            except OSError:
+                pass
+        return {"lines": out, "env": env}
 
     @app.post("/api/debug/client")
     async def debug_client(req: ClientLog) -> dict:
