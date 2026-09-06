@@ -18,16 +18,6 @@
       </condition>
     </extension>
 
-    <!-- Direct extension-to-extension call (handy for one-leg tests). -->
-    <extension name="local_extension">
-      <condition field="destination_number" expression="^(9\d{3})$">
-        <action application="set" data="call_timeout=30"/>
-        <action application="set" data="hangup_after_bridge=true"/>
-        <action application="set" data="ringback=$${ring_tone}"/>
-        <action application="bridge" data="user/$1@$${domain}"/>
-      </condition>
-    </extension>
-
     <!-- Echo test: PBX answers and echoes RTP back (tests the UAC alone). -->
     <extension name="echo">
       <condition field="destination_number" expression="^9196$">
@@ -42,6 +32,16 @@
         <action application="answer"/>
         <action application="playback" data="tone_stream://%(60000,0,1000)"/>
         <action application="hangup"/>
+      </condition>
+    </extension>
+
+    <!-- Direct extension-to-extension call (handy for one-leg tests). -->
+    <extension name="local_extension">
+      <condition field="destination_number" expression="^(9\d{3})$">
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="ringback=$${ring_tone}"/>
+        <action application="bridge" data="user/$1@$${domain}"/>
       </condition>
     </extension>
 

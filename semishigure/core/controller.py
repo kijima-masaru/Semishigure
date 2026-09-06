@@ -277,6 +277,12 @@ class LoadController:
         if rec.state == CallState.ESTABLISHED:
             self._consecutive_failures = 0
             self.stats.call_established(rec)
+            steps = self.engine.scenario.caller.steps
+            if steps:
+                # steps drive the call; call_duration stays as the safety cap (expiry in _tick)
+                task = asyncio.get_running_loop().create_task(call.run_steps(steps, max_seconds=self.config.call_duration))
+                self._call_tasks.add(task)
+                task.add_done_callback(self._call_tasks.discard)
             return
         # failed before being established
         self._notify("call_failed", f"call {rec.id} failed: {rec.end_reason}", status=rec.final_status, reason=rec.end_reason)

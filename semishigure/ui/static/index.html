@@ -225,10 +225,10 @@
         </div>
       </div>
       <div class="panel" style="margin-top:14px">
-        <h2>Past runs</h2>
+        <h2>Past runs <span style="font-weight:400;text-transform:none">· <a :href="'/api/runs/export.xlsx?ids=' + selectedRuns.join(',')">記録表 xlsx（{{ selectedRuns.length ? '選択 ' + selectedRuns.length + ' 件' : '最新 10 件' }}）</a></span></h2>
         <table>
-          <tr><th>id</th><th>name</th><th>scenario</th><th>pbx</th><th>started</th><th>calls</th><th>failed</th><th>p95 →200</th><th>RTP late max</th></tr>
-          <tr v-for="r in runs"><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.scenario_name }}</td><td>{{ r.pbx.host }}</td><td>{{ ts(r.started_at) }}</td><td>{{ r.summary ? r.summary.calls_started : '-' }}</td><td>{{ r.summary ? r.summary.calls_failed : '-' }}</td><td>{{ r.summary ? fmt(r.summary.invite_to_200_ms.p95) : '-' }}</td><td>{{ r.summary ? r.summary.rtp.late_max_ms : '-' }}</td></tr>
+          <tr><th></th><th>id</th><th>name</th><th>scenario</th><th>pbx</th><th>started</th><th>calls</th><th>failed</th><th>p95 →200</th><th>RTP late max</th></tr>
+          <tr v-for="r in runs"><td><input type="checkbox" :value="r.id" v-model="selectedRuns"></td><td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.scenario_name }}</td><td>{{ r.pbx.host }}</td><td>{{ ts(r.started_at) }}</td><td>{{ r.summary ? r.summary.calls_started : '-' }}</td><td>{{ r.summary ? r.summary.calls_failed : '-' }}</td><td>{{ r.summary ? fmt(r.summary.invite_to_200_ms.p95) : '-' }}</td><td>{{ r.summary ? r.summary.rtp.late_max_ms : '-' }}</td></tr>
         </table>
       </div>
     </div>
@@ -241,6 +241,7 @@ createApp({
     const connected = ref(false), scenarios = ref([]), runs = ref([]), run = ref(null), error = ref(''), busy = ref(false);
     const form = ref({ scenario: '', pbx_profile: '', monitor: true, target: 1, max_concurrency: 50, ramp_rate: 0.5, call_duration: 180, confirm_prod: false, ignore_register_failure: false });
     const profiles = ref([]), profilesPath = ref(''), profileTest = ref(null);
+    const selectedRuns = ref([]);
     const mchart = ref(null);
     const rate = ref({ ramp_rate: 0.5, call_duration: 180 });
     const burstTarget = ref(10), scheduleText = ref('');
@@ -336,7 +337,7 @@ createApp({
       ctx.fillStyle = '#0f766e'; ctx.fillText('target (dashed)', 50, 12); ctx.fillStyle = '#15803d'; ctx.fillText('established', 150, 12); ctx.fillStyle = '#b45309'; ctx.fillText('est+pending', 230, 12); ctx.fillStyle = '#7c3aed'; ctx.fillText('RTP late max ms (right scale ' + Math.round(maxL / 1.1) + ')', 320, 12);
     }
     onMounted(async () => { await loadScenarios(); await loadProfiles(); await loadRuns(); connect(); });
-    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, mchart, mon, activeEnv, profiles, profilesPath, profileTest, testProfile, pluginMetrics, flatten, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
+    return { connected, scenarios, runs, run, ctl, runActive, selectedScenario, presets, form, rate, burstTarget, scheduleText, chart, mchart, mon, activeEnv, profiles, profilesPath, profileTest, testProfile, pluginMetrics, flatten, selectedRuns, error, busy, fmt, ts, post, startRun, stopRun, setTarget, adjust, burst, setRate, schedule, preset };
   }
 }).mount('#app');
 </script>

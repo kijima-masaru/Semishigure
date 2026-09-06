@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -343,6 +343,23 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
     @app.get("/api/runs")
     async def list_runs() -> list[dict]:
         return state.store.list_runs() if state.store else []
+
+    @app.get("/api/runs/export.xlsx")
+    async def export_runs(ids: str = "") -> Response:
+        from io import BytesIO
+
+        from semishigure.report.xlsx import build_workbook
+
+        if state.store is None:
+            raise HTTPException(404, "no store")
+        run_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()] or [r["id"] for r in state.store.list_runs(limit=10)][::-1]
+        runs = [r for r in (state.store.get_run(i) for i in run_ids) if r is not None]
+        if not runs:
+            raise HTTPException(404, "no runs")
+        buf = BytesIO()
+        build_workbook(runs).save(buf)
+        name = "semishigure-report-" + "-".join(str(r["id"]) for r in runs) + ".xlsx"
+        return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/api/runs/{run_id}")
     async def get_run(run_id: int) -> dict:

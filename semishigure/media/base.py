@@ -73,6 +73,10 @@ class MediaSession(ABC):
     def stop(self) -> None:
         """Stop sending/receiving and release the port."""
 
+    def send_dtmf(self, digits: str, duration_ms: int = 100, gap_ms: int = 60) -> float:
+        """Queue RFC 2833 telephone-events; returns the seconds the sequence will take."""
+        raise NotImplementedError
+
     @abstractmethod
     def stats(self) -> MediaStats: ...
 

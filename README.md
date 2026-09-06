@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応・DTMF / REFER ステップ・記録表の xlsx 出力まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。残りは TLS トランスポートと RTP 送出部の別言語化です。
 
 ## 構成
 
@@ -89,6 +89,25 @@ SSH の場合は鍵認証のみで、ESL はポートフォワードで届きま
 シナリオの `plugins:` にサービス固有の処理を足します。同梱は `log_patterns`（ログの集計）、`status_command`（status 出力の抽出）、
 `conf_override`（設定の一時変更と復元）、`ws_hook`（通話ごとの WebSocket 連携）、`webhook`（HTTP 通知）。
 独自クラスは `module: pkg.mod:Class` で読み込みます。書き方は `docs/plugins.md`、設定例は `examples/plugins-example.yaml`。
+
+## 通話ステップと記録表
+
+```yaml
+caller:
+  steps:
+    - hold: 30s
+    - dtmf: "*4"        # RFC 2833
+    - hold: 10s
+    - refer: "9004"     # ブラインド転送
+    - bye
+```
+
+```bash
+semishigure runs                             # 保存したランの一覧
+semishigure report --runs 3,4,5 -o report.xlsx   # 記録表（行 = 指標、列 = ラン）と時系列 / 通話一覧 / イベント
+```
+
+画面の Past runs からもダウンロードできます。詳細は `docs/stage5-steps-report.md`。
 
 ## Asterisk
 

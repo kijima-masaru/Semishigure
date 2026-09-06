@@ -76,7 +76,10 @@ async def _cmd_call(args: argparse.Namespace) -> int:
             print(f"call {i + 1}: {r.state.value} reason={r.end_reason or '-'} status={r.final_status} 180={r.invite_to_180_ms}ms 200={r.invite_to_200_ms}ms codec={r.codec}")
             if i + 1 < args.calls and args.interval > 0:
                 await asyncio.sleep(args.interval)
-        if any(c.record.state.value == "ESTABLISHED" for c in calls):
+        if scenario.caller.steps and not args.ignore_steps:
+            print("running scenario steps: " + ", ".join(next(iter(st)) if isinstance(st, dict) else str(st) for st in scenario.caller.steps))
+            await asyncio.gather(*(c.run_steps(scenario.caller.steps, max_seconds=args.duration) for c in calls if c.record.state.value == "ESTABLISHED"), return_exceptions=True)
+        elif any(c.record.state.value == "ESTABLISHED" for c in calls):
             print(f"holding {args.duration:.0f}s ...")
             deadline = time.monotonic() + args.duration
             while time.monotonic() < deadline:
@@ -290,6 +293,38 @@ async def _pbx_test(profile: PbxProfile) -> int:
         await adapter.close()
 
 
+def _cmd_runs(args: argparse.Namespace) -> int:
+    store = RunStore()
+    for r in store.list_runs(limit=args.limit):
+        s = r.get("summary") or {}
+        i200 = s.get("invite_to_200_ms") or {}
+        print(f"#{r['id']:<4} {time.strftime('%Y-%m-%d %H:%M', time.localtime(r['started_at'] or 0))}  {r['name']:<45} {r['scenario_name']:<24} calls {s.get('calls_started', '-'):>4} failed {s.get('calls_failed', '-'):>3}  p95(200) {i200.get('p95', '-')} ms")
+    store.close()
+    return 0
+
+
+def _cmd_report(args: argparse.Namespace) -> int:
+    from semishigure.report.xlsx import build_workbook
+
+    store = RunStore()
+    ids = [int(x) for x in args.runs.replace(" ", "").split(",") if x] if args.runs else [r["id"] for r in store.list_runs(limit=args.limit)][::-1]
+    runs = []
+    for rid in ids:
+        r = store.get_run(rid)
+        if r is None:
+            print(f"warning: run #{rid} not found", file=sys.stderr)
+            continue
+        runs.append(r)
+    store.close()
+    if not runs:
+        print("no runs to export", file=sys.stderr)
+        return 1
+    wb = build_workbook(runs)
+    wb.save(args.output)
+    print(f"wrote {args.output} ({len(runs)} run(s): {', '.join('#' + str(r['id']) for r in runs)})")
+    return 0
+
+
 def _cmd_plugins(args: argparse.Namespace) -> int:
     from semishigure.plugins.registry import describe_builtin
 
@@ -357,6 +392,7 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--report", help="write JSON report to this file")
     c.add_argument("--sip-trace", action="store_true", help="log every SIP message (needs -vv)")
     c.add_argument("--ignore-register-failure", action="store_true")
+    c.add_argument("--ignore-steps", action="store_true", help="hold for --duration instead of running caller.steps")
     c.set_defaults(func=lambda a: asyncio.run(_cmd_call(a)))
 
     ld = sub.add_parser("load", help="run a load test headless (target / schedule / preset)")
@@ -388,6 +424,16 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--scenarios", default="examples", help="directory with scenario YAML files")
     sv.add_argument("--no-store", action="store_true")
     sv.set_defaults(func=_cmd_serve)
+
+    rs = sub.add_parser("runs", help="list saved runs")
+    rs.add_argument("--limit", type=int, default=30)
+    rs.set_defaults(func=_cmd_runs)
+
+    rp = sub.add_parser("report", help="export the record sheet (xlsx) for saved runs")
+    rp.add_argument("--runs", help="run ids, e.g. 3,4,5 (default: the latest --limit runs)")
+    rp.add_argument("--limit", type=int, default=10)
+    rp.add_argument("-o", "--output", default="semishigure-report.xlsx")
+    rp.set_defaults(func=_cmd_report)
 
     pl = sub.add_parser("plugins", help="list built-in plugins")
     pl.set_defaults(func=_cmd_plugins)
