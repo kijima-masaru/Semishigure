@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 (2026-09-06)
+
+- Windows のアプリ窓を Edge / Chrome のアプリ モード（別プロセス）に変更。WinForms + WebView2（pywebview）は、環境によって .NET の例外でプロセスごと落ちることがあったため廃止
+- インストーラから pywebview / pythonnet などを除いた
+
 ## 1.0.1 (2026-09-06)
 
 Windows デスクトップ版の修正。

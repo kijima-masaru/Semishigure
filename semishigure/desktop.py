@@ -1,9 +1,12 @@
 """Desktop launcher (Windows installer entry point, also usable elsewhere).
 
 Starts the API/UI server on a free 127.0.0.1 port in a background thread and
-shows the UI in an application window (pywebview; Edge WebView2 on Windows).
-When pywebview is not available the UI opens in the default browser instead and
-the process keeps serving until the console is closed or Ctrl-C.
+shows the UI in an application window: Microsoft Edge (or Chrome) in "app"
+mode with its own profile directory, which is a plain browser process that
+lives exactly as long as the window. Nothing runs inside our process for the
+window, so a browser problem cannot take the app down. Without Edge/Chrome the
+UI opens in the default browser instead and the process keeps serving until
+the console is closed or Ctrl-C (a message box on Windows).
 
 The server is bound to 127.0.0.1 only: nothing is reachable from other hosts.
 Runs in progress are stopped (every call BYE'd, REGISTER released, conf
@@ -14,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -77,25 +82,78 @@ def _log_setup(home: Path) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=[logging.FileHandler(home / "desktop.log", encoding="utf-8")])
 
 
-def _open_window(url: str) -> bool:
-    """Show the UI in an application window (pywebview / Edge WebView2).
+def _app_browser() -> str | None:
+    """Path of a Chromium-based browser that supports ``--app`` (Edge, Chrome), or None."""
+    env = os.environ.get
+    if sys.platform == "win32":
+        import winreg
+
+        for exe in ("msedge.exe", "chrome.exe"):
+            for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                try:
+                    with winreg.OpenKey(root, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}") as k:
+                        path, _ = winreg.QueryValueEx(k, "")
+                    if path and os.path.isfile(path):
+                        return path
+                except OSError:
+                    continue
+        candidates = [
+            os.path.join(env("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(env("ProgramFiles", r"C:\Program Files"), "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(env("ProgramFiles", r"C:\Program Files"), "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(env("LOCALAPPDATA", ""), "Google", "Chrome", "Application", "chrome.exe"),
+        ]
+    elif sys.platform == "darwin":
+        candidates = [
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ]
+    else:
+        candidates = [shutil.which(n) or "" for n in ("microsoft-edge", "google-chrome", "chromium", "chromium-browser")]
+    return next((c for c in candidates if c and os.path.isfile(c)), None)
+
+
+def _open_window(url: str, home: Path) -> bool:
+    """Show the UI in an application window and return when it is closed.
 
     Returns False, after logging why, when no window can be shown: the caller
-    falls back to the default browser. Any failure here must never take the
-    whole program down silently.
+    falls back to the default browser. The window is Edge/Chrome in ``--app``
+    mode with a private profile under ``home``: a separate process, so a
+    failure there never takes this process down.
     """
-    try:
-        import webview  # pywebview (BSD-3-Clause)
-    except Exception as exc:  # noqa: BLE001 (ImportError, or a DLL/.NET loading error)
-        log.warning("application window unavailable (%s): using the browser", exc)
+    browser = _app_browser()
+    if not browser:
+        log.warning("no Edge/Chrome for the application window: using the default browser")
         return False
+    profile = home / "window-profile"
+    profile.mkdir(parents=True, exist_ok=True)
+    args = [
+        browser,
+        f"--app={url}",
+        f"--user-data-dir={profile}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-mode",
+        "--disable-sync",
+        "--window-size=1360,900",
+    ]
     try:
-        webview.create_window(f"蝉時雨 Semishigure {__version__}", url, width=1360, height=900, min_size=(900, 600), text_select=True)
-        webview.start()  # returns when the window is closed
+        proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        log.exception("could not start %s: using the default browser", browser)
+        return False
+    log.info("application window: %s (pid %s)", browser, proc.pid)
+    # the browser process lives as long as its window (own profile => no sharing
+    # with an already running Edge/Chrome); an immediate exit means it failed
+    try:
+        rc = proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.wait()
+        log.info("application window closed")
         return True
-    except Exception:  # noqa: BLE001
-        log.exception("application window failed: using the browser")
-        return False
+    log.warning("application window exited immediately (code %s): using the default browser", rc)
+    return False
 
 
 def run(window: bool = True, port: int | None = None, open_browser: bool = True) -> int:
@@ -111,14 +169,14 @@ def run(window: bool = True, port: int | None = None, open_browser: bool = True)
         _alert(f"Semishigure を起動できません: {exc}\n詳細: {home / 'desktop.log'}")
         return 1
     try:
-        if window and _open_window(server.url):
+        if window and _open_window(server.url, home):
             return 0
         if open_browser and not os.environ.get("SEMISHIGURE_NO_BROWSER"):
             webbrowser.open(server.url)
         print(f"Semishigure {__version__}: {server.url}  (Ctrl-C で終了)")
         if window and sys.platform == "win32":
             # no console to press Ctrl-C in: a message box is the stop button
-            _info(f"画面をブラウザで開きました: {server.url}\n\nこの OK を押すと Semishigure を終了します。\n（アプリの窓が開けなかった理由は {home / 'desktop.log'} にあります）")
+            _info(f"画面を既定のブラウザで開きました: {server.url}\n\nこの OK を押すと Semishigure を終了します。\n（Microsoft Edge か Google Chrome があればアプリ窓で開きます。詳細: {home / 'desktop.log'}）")
             return 0
         try:
             while server.thread.is_alive():

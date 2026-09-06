@@ -4,7 +4,7 @@
 
 Works on Windows and on Linux (cross-build): it downloads the win_amd64 wheels of
 every runtime dependency for the embedded Python, builds the semishigure wheel and
-the one sdist-only dependency (proxy_tools), then runs pynsist with installer.cfg.
+then runs pynsist with installer.cfg.
 """
 
 from __future__ import annotations
@@ -19,10 +19,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 WHEELS = ROOT / "build" / "wheels"
 PY = "3.12"
-# runtime dependencies (see pyproject.toml) + the desktop window (pywebview, BSD-3-Clause,
-# with pythonnet (MIT) and clr_loader (MIT) for Edge WebView2 on Windows)
-BINARY = ["pyyaml", "cryptography", "fastapi", "uvicorn", "websockets", "asyncssh", "openpyxl", "pywebview", "pythonnet", "clr_loader", "bottle", "typing_extensions"]
-SDIST_ONLY = ["proxy_tools"]
+# runtime dependencies (see pyproject.toml); the application window is Edge/Chrome in
+# app mode, so nothing GUI-related is bundled
+BINARY = ["pyyaml", "cryptography", "fastapi", "uvicorn", "websockets", "asyncssh", "openpyxl", "typing_extensions"]
+SDIST_ONLY: list[str] = []
 
 
 def run(*cmd: str) -> None:

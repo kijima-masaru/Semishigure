@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev,desktop]" httpx pynsist
+      - run: python -m pip install -e ".[dev]" httpx pynsist
       - run: ruff check semishigure tests
       - run: pytest -q
       - name: Install NSIS (makensis)
@@ -63,6 +63,8 @@ jobs:
           foreach ($f in @($log, "$env:APPDATA\Semishigure.launch.pyw.log")) { if (Test-Path $f) { "===== $f"; Get-Content $f } else { "(no file) $f" } }
           "launcher exited: $($proc.HasExited) code: $($proc.ExitCode)"
           if (-not $url) { Write-Error "no server URL in desktop.log"; exit 1 }
+          if ($proc.HasExited) { Write-Error "the launcher exited instead of keeping the window open"; exit 1 }
+          if (-not (Select-String -Path $log -Pattern "application window: " -Quiet)) { Write-Error "no application window was opened (see desktop.log above)"; exit 1 }
           $ui = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 5
           if ($ui.Content -notmatch "Semishigure") { Write-Error "UI not served"; exit 1 }
           "UI reachable at $url (ui $($ui.Content.Length) bytes)"
