@@ -3,6 +3,8 @@
 import hashlib
 import io
 import logging
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -60,15 +62,35 @@ def test_download_verifies_checksum(tmp_path: Path):
         up.download(url, None, tmp_path / "y.exe", opener=opener)
 
 
-def test_updater_script_targets_the_same_install_dir(tmp_path: Path, monkeypatch):
+def test_installer_params_follow_the_install_dir(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\me\AppData\Local")
-    layout = {"install_dir": Path(r"C:\Users\me\AppData\Local\Programs\Semishigure"), "launcher": Path(r"C:\Users\me\AppData\Local\Programs\Semishigure\Semishigure.launch.pyw"), "pythonw": Path(r"C:\Users\me\AppData\Local\Programs\Semishigure\Python\pythonw.exe")}
-    s = up.updater_script(tmp_path / "Semishigure-9-setup.exe", layout, 4242)
-    assert "Get-Process -Id $target" in s and "$target = 4242" in s
-    assert '/S /currentuser /INSTDIR="C:\\Users\\me\\AppData\\Local\\Programs\\Semishigure"' in s
-    assert "pythonw.exe" in s and "Semishigure.launch.pyw" in s
-    layout["install_dir"] = Path(r"C:\Program Files\Semishigure")
-    assert "/allusers" in up.updater_script(tmp_path / "x.exe", layout, 1)
+    assert up.installer_params(Path(r"C:\Users\me\AppData\Local\Programs\Semishigure")) == '/S /currentuser /INSTDIR="C:\\Users\\me\\AppData\\Local\\Programs\\Semishigure"'
+    assert up.installer_params(Path(r"C:\Program Files\Semishigure")).startswith("/S /allusers ")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX fake installer")
+def test_apply_update_waits_installs_and_restarts(tmp_path: Path):
+    import subprocess
+
+    # a fake installer that records its arguments, and a fake app to restart
+    setup = tmp_path / "setup.sh"
+    setup.write_text("#!/bin/sh\necho \"$@\" > \"$(dirname \"$0\")/installed.txt\"\nexit 0\n")
+    setup.chmod(0o755)
+    launcher = tmp_path / "launch.py"
+    launcher.write_text("open(__file__ + '.started', 'w').write('x')\n")
+    victim = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2)"])
+    log = tmp_path / "update.log"
+    rc = up.apply_update(setup, victim.pid, tmp_path, launcher, Path(sys.executable), log, wait_timeout=30)
+    assert rc == 0
+    text = log.read_text(encoding="utf-8")
+    assert "waiting for pid" in text and "installer exit code 0" in text and "done" in text
+    assert "/S" in (tmp_path / "installed.txt").read_text() and "/INSTDIR=" in (tmp_path / "installed.txt").read_text()
+    for _ in range(50):
+        if (tmp_path / "launch.py.started").exists():
+            break
+        time.sleep(0.1)
+    assert (tmp_path / "launch.py.started").exists()
+    victim.wait()
 
 
 def test_debug_log_and_update_endpoints(tmp_path: Path, monkeypatch):
