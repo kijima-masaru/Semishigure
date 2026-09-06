@@ -55,6 +55,7 @@ class CallerConfig:
     audio_loop: bool = True
     steps: list[dict] = field(default_factory=list)
     from_display: str | None = None
+    correlation_header: str | None = "X-Semishigure-Call"  # "" disables
 
     @property
     def codecs(self) -> list[str]:
@@ -165,6 +166,7 @@ def scenario_from_dict(data: dict, base_dir: Path | None = None) -> Scenario:
         audio_loop=bool(c.get("audio_loop", True)),
         steps=list(c.get("steps") or []),
         from_display=c.get("from_display"),
+        correlation_header=(c.get("correlation_header", "X-Semishigure-Call") or None),
     )
     exts = [
         ExtensionConfig(user=str(e["user"]), password_ref=str(e.get("password_ref", "")), max_calls=int(e.get("max_calls", 5)))

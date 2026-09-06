@@ -13,7 +13,10 @@ from pathlib import Path
 
 from semishigure import __version__
 from semishigure.core.call import CallRecord
+from semishigure.core.controller import parse_schedule, preset_schedule
 from semishigure.core.engine import SipEngine
+from semishigure.core.run import ProdConfirmationRequired, Run
+from semishigure.core.store import RunStore
 from semishigure.media.wav import synth_speech_like, write_wav
 from semishigure.scenario.model import load_scenario
 from semishigure.secrets import SecretError, SecretStore
@@ -129,6 +132,102 @@ def _print_report(snap: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# semishigure load  (stage 2: headless load run with a step schedule)
+# ---------------------------------------------------------------------------
+
+
+async def _cmd_load(args: argparse.Namespace) -> int:
+    scenario = load_scenario(args.scenario)
+    if args.pbx_host:
+        scenario.pbx.host = args.pbx_host
+    record_dir = Path(args.record_rx) if args.record_rx else None
+    if record_dir:
+        record_dir.mkdir(parents=True, exist_ok=True)
+    store = None if args.no_store else RunStore()
+    try:
+        run = Run(
+            scenario,
+            name=args.name or "",
+            store=store,
+            target=args.target,
+            ramp_rate=args.ramp,
+            call_duration=args.duration,
+            max_concurrency=args.max_concurrency,
+            max_total_calls=args.max_total,
+            confirm_prod=args.confirm_prod,
+            record_rx_dir=record_dir,
+            sip_trace=args.sip_trace,
+            on_event=lambda kind, ev: log.info("%s: %s", kind, ev.get("message", ev)),
+        )
+    except ProdConfirmationRequired as exc:
+        print(f"error: {exc} (pass --confirm-prod)", file=sys.stderr)
+        return 2
+    steps = None
+    if args.preset:
+        preset = scenario.load.presets.get(args.preset)
+        if preset is None:
+            print(f"error: preset {args.preset!r} not in scenario (have {list(scenario.load.presets)})", file=sys.stderr)
+            return 2
+        steps, _, _ = preset_schedule(preset, run.config.call_duration)
+    elif args.schedule:
+        steps = parse_schedule(args.schedule, run.config.call_duration)
+    exit_code = 0
+    try:
+        await run.start(ignore_register_failure=args.ignore_register_failure)
+        print(f"run {run.name} (id {run.run_id}) local {run.engine.local_ip} -> {scenario.pbx.host}:{scenario.pbx.sip_port} domain {scenario.pbx.domain}")
+        for user, ok in run.engine.registration_results.items():
+            print(f"  REGISTER {user}: {'ok' if ok else 'FAILED'}")
+        if steps:
+            total = sum(s.seconds for s in steps)
+            print("schedule: " + " -> ".join(f"N={s.target} for {s.seconds:.0f}s" for s in steps) + f" (total {total:.0f}s)")
+            run.controller.run_schedule(steps, then_target=0)
+        deadline = time.monotonic() + (args.time if args.time else (sum(s.seconds for s in steps) + args.drain_time if steps else 0))
+        last = ""
+        while True:
+            await asyncio.sleep(1.0)
+            st = run.controller.state()
+            s = run.stats.summary()
+            line = f"t={s['elapsed_s']:6.1f}s target={st['target']:3d} est={st['established']:3d} pend={st['pending']:2d} started={s['calls_started']} failed={s['calls_failed']} cps={s['cps']} p95(200)={s['invite_to_200_ms']['p95']} rtp_late_max={s['rtp']['late_max_ms']}ms"
+            if st["backoff_reason"]:
+                line += f"  BACKOFF: {st['backoff_reason']}"
+            if line != last:
+                print(line, flush=True)
+                last = line
+            if deadline and time.monotonic() >= deadline:
+                if steps and (st["established"] + st["pending"]) > 0 and time.monotonic() < deadline + args.drain_time:
+                    continue
+                break
+            if steps and run.controller.schedule_index < 0 and st["target"] == 0 and st["established"] + st["pending"] == 0:
+                break
+    except KeyboardInterrupt:
+        print("interrupted: hanging up all calls")
+        exit_code = 130
+    except RuntimeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        exit_code = 3
+    finally:
+        await run.stop()
+        if store is not None:
+            store.close()
+    summ = run.summary()
+    print(json.dumps(summ, indent=2, ensure_ascii=False))
+    if args.report:
+        Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False))
+        print(f"report written to {args.report}")
+    return exit_code
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    from semishigure.api.app import create_app
+
+    app = create_app(scenario_dir=Path(args.scenarios), store=None if args.no_store else RunStore())
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info" if args.verbose else "warning")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # audio / secret helpers
 # ---------------------------------------------------------------------------
 
@@ -176,6 +275,34 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--sip-trace", action="store_true", help="log every SIP message (needs -vv)")
     c.add_argument("--ignore-register-failure", action="store_true")
     c.set_defaults(func=lambda a: asyncio.run(_cmd_call(a)))
+
+    ld = sub.add_parser("load", help="run a load test headless (target / schedule / preset)")
+    ld.add_argument("scenario")
+    ld.add_argument("--name")
+    ld.add_argument("--target", type=int, help="initial target concurrency (default: scenario load.target_concurrency)")
+    ld.add_argument("--schedule", help="step schedule, e.g. '5:60,20:60,8:60' (target:seconds)")
+    ld.add_argument("--preset", help="scenario preset name (A, B, ...)")
+    ld.add_argument("--ramp", type=float, help="calls per second when ramping up")
+    ld.add_argument("--duration", type=float, help="call duration seconds")
+    ld.add_argument("--time", type=float, help="run time in seconds when no schedule is given (0 = until Ctrl-C)")
+    ld.add_argument("--drain-time", type=float, default=15.0, help="extra seconds to wait for calls to end after the schedule")
+    ld.add_argument("--max-concurrency", type=int, default=50)
+    ld.add_argument("--max-total", type=int)
+    ld.add_argument("--confirm-prod", action="store_true")
+    ld.add_argument("--pbx-host")
+    ld.add_argument("--record-rx")
+    ld.add_argument("--report")
+    ld.add_argument("--no-store", action="store_true", help="do not save the run to SQLite")
+    ld.add_argument("--sip-trace", action="store_true")
+    ld.add_argument("--ignore-register-failure", action="store_true")
+    ld.set_defaults(func=lambda a: asyncio.run(_cmd_load(a)))
+
+    sv = sub.add_parser("serve", help="start the web UI / API server")
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8080)
+    sv.add_argument("--scenarios", default="examples", help="directory with scenario YAML files")
+    sv.add_argument("--no-store", action="store_true")
+    sv.set_defaults(func=_cmd_serve)
 
     a = sub.add_parser("audio", help="audio helpers")
     asub = a.add_subparsers(dest="audio_cmd", required=True)

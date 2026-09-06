@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 1（SIP コア）完了**。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**現在は段階 2（負荷制御）まで完了**。
 
 ## 構成
 
@@ -17,7 +17,9 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 semishigure/
   sip/        SIP 信号: message / sdp / auth / transport / transaction / dialog / endpoint / uac / uas
   media/      メディア境界 (base) と Python 実装 (engine): codec / wav / rtp / pump
-  core/       call（通話記録・指標）, engine（配線と安全停止）
+  core/       call（通話記録・指標）, engine（配線と安全停止）, controller（負荷制御）, stats, store（SQLite）, run
+  api/        FastAPI（REST + WebSocket）
+  ui/static/  Vue 3 の画面（CDN。届かない環境では同梱の vendor/vue.global.prod.js に切替）
   scenario/   シナリオ YAML モデル
   plugins/    サービスプラグイン（flatline は段階 4）
   secrets.py  秘密情報ストア
@@ -53,6 +55,19 @@ semishigure -v call examples/dev-freeswitch.yaml --duration 20 --record-rx runs/
 ```
 
 出力例と実測は `docs/stage1-report.md`。
+
+## 段階 2 の使い方（負荷制御）
+
+```bash
+# ヘッドレス: N を 5 → 20 → 8 と 40 秒ずつ変える（通話長 60 秒、発信 1 本/秒）
+semishigure load examples/dev-freeswitch.yaml --schedule "5:40,20:40,8:40" --duration 60 --ramp 1
+# シナリオのプリセット A（5 → 10 → 20、各 call_duration）
+semishigure load examples/dev-freeswitch.yaml --preset A
+# 画面: http://127.0.0.1:8080  スライダー / ±1 ±5 / バースト / 一時停止 / 全切断 / スケジュール
+semishigure serve --scenarios examples
+```
+
+ランは `~/.semishigure/runs.sqlite3` に保存されます（`SEMISHIGURE_HOME` で変更）。実測は `docs/stage2-report.md`。
 
 ## 制約（共有事項 6 節）
 

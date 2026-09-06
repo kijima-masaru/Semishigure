@@ -198,6 +198,7 @@ class RingSet:
     t0: float
     members: list[InboundCall] = field(default_factory=list)
     winner: InboundCall | None = None
+    key: str | None = None  # correlation header value when the PBX passes it through
 
     def decide(self) -> InboundCall:
         if self.winner is None:
@@ -210,7 +211,7 @@ class RingSet:
 class Answerer:
     """Hosts several extensions on one SIP endpoint (pjsua replacement)."""
 
-    def __init__(self, endpoint: SipEndpoint, media_engine: MediaEngine, pbx_addr: Addr, domain: str, extensions: list[AnswererExtension], codecs: list[str] | None = None, record_rx_dir: Path | None = None, on_call: Callable[[CallRecord, str], None] | None = None, register_expires: int = 300, ring_window: float = 0.05, loser_grace: float = 1.0):
+    def __init__(self, endpoint: SipEndpoint, media_engine: MediaEngine, pbx_addr: Addr, domain: str, extensions: list[AnswererExtension], codecs: list[str] | None = None, record_rx_dir: Path | None = None, on_call: Callable[[CallRecord, str], None] | None = None, register_expires: int = 300, ring_window: float = 0.05, loser_grace: float = 1.0, correlation_header: str | None = "X-Semishigure-Call"):
         self.endpoint = endpoint
         self.media_engine = media_engine
         self.pbx_addr = pbx_addr
@@ -224,6 +225,7 @@ class Answerer:
         self.register_expires = register_expires
         self.ring_window = ring_window
         self.loser_grace = loser_grace
+        self.correlation_header = correlation_header
         self.records: list[CallRecord] = []
         self.rejected_unknown = 0
         self._ring_sets: list[RingSet] = []
@@ -232,11 +234,16 @@ class Answerer:
     def _ring_set_for(self, call: InboundCall) -> RingSet:
         now = asyncio.get_running_loop().time()
         self._ring_sets = [rs for rs in self._ring_sets if now - rs.t0 <= 5.0]
+        key = call.invite.get(self.correlation_header) if self.correlation_header else None
         for rs in self._ring_sets:
-            if rs.from_user == call.record.remote_user and now - rs.t0 <= self.ring_window and rs.winner is None:
+            if key is not None:
+                if rs.key == key:
+                    rs.members.append(call)
+                    return rs
+            elif rs.key is None and rs.from_user == call.record.remote_user and now - rs.t0 <= self.ring_window and rs.winner is None:
                 rs.members.append(call)
                 return rs
-        rs = RingSet(from_user=call.record.remote_user, t0=now, members=[call])
+        rs = RingSet(from_user=call.record.remote_user, t0=now, members=[call], key=key)
         self._ring_sets.append(rs)
         return rs
 

@@ -102,6 +102,7 @@ class SipEngine:
             register_expires=self.register_expires,
             ring_window=sc.answerer.ring_window,
             loser_grace=sc.answerer.loser_grace,
+            correlation_header=sc.caller.correlation_header,
         )
         self._install_signal_handlers()
         self._started = True
@@ -187,6 +188,7 @@ class SipEngine:
             record_rx=record_path,
             from_display=sc.caller.from_display,
             record=record,
+            correlation_header=sc.caller.correlation_header,
         )
         self.calls.append(call)
         return call

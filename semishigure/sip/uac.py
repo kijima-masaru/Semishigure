@@ -38,6 +38,7 @@ class OutboundCall:
         record_rx: Path | None = None,
         from_display: str | None = None,
         record: CallRecord | None = None,
+        correlation_header: str | None = "X-Semishigure-Call",
     ):
         self.endpoint = endpoint
         self.media_engine = media_engine
@@ -53,6 +54,7 @@ class OutboundCall:
         self.record_rx = record_rx
         self.record = record or CallRecord(role=CallRole.CALLER, local_user=from_user, remote_user=destination)
         self.record.sip_call_id = new_call_id(endpoint.local_ip)
+        self.correlation_header = correlation_header
         self.local_tag = new_tag()
         self.cseq = 0
         self.dialog: Dialog | None = None
@@ -84,6 +86,10 @@ class OutboundCall:
             req.add(*auth_header)
         for name, value in self.headers:
             req.add(name, value)
+        if self.correlation_header:
+            # copied to the B-leg by FreeSWITCH (sip_copy_custom_headers) so the
+            # answerer can group the ring-group INVITEs of this call
+            req.add(self.correlation_header, self.record.id)
         req.add("Content-Type", "application/sdp")
         assert self.media is not None
         req.body = build_offer(self.media.local_ip, self.media.local_port, self.codecs)
