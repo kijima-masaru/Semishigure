@@ -64,7 +64,13 @@ jobs:
           "launcher exited: $($proc.HasExited) code: $($proc.ExitCode)"
           if (-not $url) { Write-Error "no server URL in desktop.log"; exit 1 }
           if ($proc.HasExited) { Write-Error "the launcher exited instead of keeping the window open"; exit 1 }
-          if (-not (Select-String -Path $log -Pattern "application window: " -Quiet)) { Write-Error "no application window was opened (see desktop.log above)"; exit 1 }
+          # the window is started right after the server answers: give the log line a moment
+          $win = $false
+          foreach ($i in 1..20) { if (Select-String -Path $log -Pattern "application window: " -Quiet) { $win = $true; break }; Start-Sleep 1 }
+          if (-not $win) { Get-Content $log; Write-Error "no application window was opened (see desktop.log above)"; exit 1 }
+          Start-Sleep 3
+          if ($proc.HasExited) { Get-Content $log; Write-Error "the launcher exited after opening the window"; exit 1 }
+          Get-Content $log | Select-Object -Last 2
           $ui = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 5
           if ($ui.Content -notmatch "Semishigure") { Write-Error "UI not served"; exit 1 }
           "UI reachable at $url (ui $($ui.Content.Length) bytes)"
