@@ -346,4 +346,6 @@ pre.yaml { margin: var(--sp-2) 0 0; max-height: 260px; overflow: auto; font: var
 
 /* scenario: new-scenario block */
 .create { margin-top: 12px; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.create h3 { font-size: var(--fs-md, 15px); font-weight: 600; margin-bottom: 4px; }
+.create .intro { margin: 0 0 var(--sp-3); color: var(--muted); }
 .create .btns { margin-top: var(--sp-3); }

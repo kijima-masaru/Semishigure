@@ -593,10 +593,12 @@
       <div class="row" style="margin-top:8px">
         <label for="s-file" class="sr-only">編集するシナリオ</label>
         <select id="s-file" v-model="editor.file" @change="loadScenarioText" style="width:auto;min-width:200px;flex:1"><option v-for="s in scenarios" :key="s.file" :value="s.file">{{ s.file }}</option></select>
-        <button class="primary" @click="editor.creating = !editor.creating; editor.createMsg = ''" :aria-expanded="editor.creating || !scenarios.length" aria-controls="s-create">新規作成</button>
+        <button class="primary" @click="openCreate" :aria-expanded="editor.creating || !scenarios.length" aria-controls="s-create">新規作成</button>
         <button class="danger outline" @click="deleteScenario" :disabled="!editor.file">削除</button>
       </div>
       <div class="create" id="s-create" v-if="editor.creating || !scenarios.length">
+        <h3>新しいシナリオを作る</h3>
+        <p class="intro">名前を入れて「作成して編集する」を押すと、雛形（または選択中のシナリオのコピー）から YAML が作られ、下の編集欄に開きます。</p>
         <div class="grid2">
           <div class="field"><label for="s-new">シナリオ名</label><input id="s-new" type="text" v-model="editor.newName" placeholder="例: office-8001" aria-describedby="s-new-help" @keydown.enter.prevent="createScenario"><div class="help" id="s-new-help">ファイル名になります（.yaml は自動で付きます）</div></div>
           <div class="field"><span class="label">元にするもの</span>

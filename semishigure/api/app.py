@@ -197,9 +197,20 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
     app.state.semishigure = state
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
+    @app.middleware("http")
+    async def no_stale_ui(request, call_next):
+        # the desktop window keeps a browser profile across upgrades: never let it reuse a
+        # cached page or script without asking the server first (304 when unchanged)
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
-        return (STATIC / "index.html").read_text(encoding="utf-8")
+        # version-stamped asset URLs: a new release is a new URL, whatever the cache thinks
+        html = (STATIC / "index.html").read_text(encoding="utf-8")
+        return html.replace('href="/static/styles.css"', f'href="/static/styles.css?v={__version__}"').replace('src="/static/app.js"', f'src="/static/app.js?v={__version__}"').replace('src="/static/charts.js"', f'src="/static/charts.js?v={__version__}"')
 
     @app.get("/api/state")
     async def api_state() -> dict:

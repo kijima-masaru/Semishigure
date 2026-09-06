@@ -244,6 +244,7 @@
         finally { busy.value = ""; }
       }
       function goGuideScenario() { guide.value.step = 3; setTab("guide"); }
+      function openCreate() { editor.value.creating = true; editor.value.createMsg = ""; nextTick(() => { const el = document.getElementById("s-new"); if (el) { el.focus(); el.scrollIntoView({ block: "nearest" }); } }); }
       async function deleteScenario() {
         if (!editor.value.file) return;
         if (!(await confirmDialog({ title: "シナリオを削除しますか？", lines: [editor.value.file + " をディスクから削除します。元に戻せません。"], confirmLabel: "削除する", danger: true }))) return;
@@ -504,7 +505,7 @@
         startRun, runPrecheck, busy, restartSame, prodBox, setTargetDebounced, setTarget, adjust, pending, scheduleText, schedule, runPresets, preset, clearSchedule, rate, setRate, pause, resume, burstTarget, burst,
         extList, eventsDesc, kindOf, hangupAll, stopRun, resolved, testProfile, profileTest, modeText, recentRuns, openRun, ts, fmt, n, ago, nextStep, busyRejects, failText, answeredText, mon, monStale, monAge,
         seriesTruncated, chartEl, chartSummary, updateInterval, updatePaused, reducedMotion, callsFilter, callsView, sortState, callsSort, sortCalls, stateLabel, processLabel, mchartEl, customMetrics, logWarnOnly, logView, levelOf, flatten,
-        editor, loadScenarioText, createScenario, goGuideScenario, deleteScenario, yamlEl, saveScenario, pform, loadProfileForm, deleteProfile, profileGroups, numericFields: NUMERIC_FIELDS, profileHelp: PROFILE_HELP, saveProfile, profilesPath,
+        editor, loadScenarioText, createScenario, goGuideScenario, openCreate, deleteScenario, yamlEl, saveScenario, pform, loadProfileForm, deleteProfile, profileGroups, numericFields: NUMERIC_FIELDS, profileHelp: PROFILE_HELP, saveProfile, profilesPath,
         runs, runsQuery, selectedRuns, compareRuns, runsView, runsSort, sortRuns, detail, compare, cchartEl, detailEl, stepRun, hasRun, closeDetail, dchartEl, detailSummary, detailRows, dlgEl, dialog, dialogAnswer, dlgCancel,
         guide, guideSteps, guideSecrets, guideResult, guideMaxStep, guideScenarioExists, answererSecretNames, secretsInfo, secretsResolved, secretStatus, guideSave, guideReset, guideTypeDefaults, guideStep1, guideSkipMonitor, guideStep2, guideStep3, guideStep4, guideStep5, precheckHint, provisioned, guideProvision, guideUnprovision,
       };
