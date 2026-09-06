@@ -514,19 +514,21 @@
           Object.assign(update.value, { checked: true, newer: !!r.newer, latest: r.latest || "", current: r.current || "", can_install: !!r.can_install, html_url: r.html_url || "", error: r.error || "", notes: r.notes || "" });
           if (r.error) { if (manual) showToast("最新版を確認できません: " + r.error, "bad"); return; }
           if (!r.newer) { if (manual) showToast(`最新版です（Ver. ${r.current}）`); return; }
-          await offerUpdate();
+          await offerUpdate(manual);
         } catch (e) { if (manual) showToast("最新版を確認できません: " + (e.message || e), "bad"); }
         finally { update.value.busy = false; }
       }
-      async function offerUpdate() {
+      async function offerUpdate(manual) {
+        // desktop build: no questions asked, the update runs right away (a run in progress is the only reason to wait)
         const u = update.value;
         if (u.can_install) {
-          const ok = await confirmDialog({ title: `Ver. ${u.latest} に更新しますか？`, lines: [`現在は Ver. ${u.current} です。`, "インストーラをダウンロードして検証し、アプリをいったん閉じて更新します。終わると自動で再び開きます。", run.value && !run.value.finished ? "実行中のランがあるので、先に止めてください。" : "所要時間は 1 分ほどです。"], confirmLabel: "今すぐ更新する" });
-          if (ok) await installUpdate();
-        } else {
-          const ok = await confirmDialog({ title: `Ver. ${u.latest} があります`, lines: [`現在は Ver. ${u.current} です。`, "この起動方法では自動更新できません。リリースページからインストーラを取得してください。"], confirmLabel: "リリースページを開く" });
-          if (ok && u.html_url) window.open(u.html_url, "_blank", "noopener");
+          if (run.value && !run.value.finished) { if (manual) showToast(`Ver. ${u.latest} があります。実行中のランを止めると更新できます`, "warn"); return; }
+          await installUpdate();
+          return;
         }
+        if (!manual) return;
+        const ok = await confirmDialog({ title: `Ver. ${u.latest} があります`, lines: [`現在は Ver. ${u.current} です。`, "この起動方法では自動更新できません。リリースページからインストーラを取得してください。"], confirmLabel: "リリースページを開く" });
+        if (ok && u.html_url) window.open(u.html_url, "_blank", "noopener");
       }
       async function installUpdate() {
         update.value.installing = true;
