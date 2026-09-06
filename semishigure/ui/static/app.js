@@ -25,7 +25,8 @@
   const ago = (t) => { if (!t) return "–"; const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 60 ? s + " 秒前" : mmss(s) + " 前"; };
   const LEVEL_RE = /\[(EMERG|ALERT|CRIT|ERR|WARNING|NOTICE|INFO|DEBUG)\]|(ERROR|WARNING|NOTICE|VERBOSE|DEBUG)\[\d+\]/;
   const levelOf = (line) => { const m = LEVEL_RE.exec(line || ""); const l = m ? (m[1] || m[2]) : ""; return l === "ERROR" ? "ERR" : l; };
-  const TABS = [{ id: "guide", label: "ガイド" }, { id: "run", label: "実行" }, { id: "scenarios", label: "シナリオ" }, { id: "profiles", label: "PBX" }, { id: "results", label: "結果" }];
+  // in the order things are set up and used: connect the PBX, write a scenario, run, look at results
+  const TABS = [{ id: "guide", label: "ガイド" }, { id: "profiles", label: "PBX" }, { id: "scenarios", label: "シナリオ" }, { id: "run", label: "実行" }, { id: "results", label: "結果" }];
   const NUMERIC_FIELDS = ["sip_port", "sip_tls_port", "ssh_port", "esl_port", "rtp_port_start", "rtp_port_end", "max_concurrency"];
   const PROFILE_GROUPS = [
     { title: "基本", fields: ["name", "type", "host", "domain", "environment", "max_concurrency", "notes"] },
