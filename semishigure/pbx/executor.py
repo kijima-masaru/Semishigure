@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shlex
+import shutil
+import sys
 import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -59,6 +62,25 @@ class Executor(ABC):
         return {"kind": self.kind}
 
 
+def _posix_shell() -> str | None:
+    """On Windows the commands (cat, ps, tail, heredocs) need a POSIX shell: Git for Windows
+    or MSYS2 bash when installed. WSL's System32\\bash.exe is not used (different filesystem)."""
+    if sys.platform != "win32":
+        return None
+    candidates = [
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "bash.exe"),
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "usr", "bin", "bash.exe"),
+        r"C:\msys64\usr\bin\bash.exe",
+    ]
+    found = shutil.which("bash")
+    if found and "system32" not in found.lower():
+        candidates.append(found)
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    raise ExecutorError("the local executor needs a POSIX shell on Windows (Git for Windows bash); use executor: ssh to reach the PBX host")
+
+
 class LocalExecutor(Executor):
     kind = "local"
 
@@ -68,9 +90,16 @@ class LocalExecutor(Executor):
     async def close(self) -> None:
         return None
 
+    @staticmethod
+    async def _spawn(command: str, stderr):
+        shell = _posix_shell()
+        if shell:
+            return await asyncio.create_subprocess_exec(shell, "-c", command, stdout=asyncio.subprocess.PIPE, stderr=stderr)
+        return await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=stderr)
+
     async def run(self, command: str, timeout: float = 15.0) -> CommandResult:
         t0 = time.monotonic()
-        proc = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        proc = await self._spawn(command, asyncio.subprocess.PIPE)
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout)
         except TimeoutError:
@@ -79,7 +108,7 @@ class LocalExecutor(Executor):
         return CommandResult(command, proc.returncode or 0, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"), round((time.monotonic() - t0) * 1000, 1))
 
     async def stream(self, command: str) -> AsyncIterator[str]:
-        proc = await asyncio.create_subprocess_shell(command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+        proc = await self._spawn(command, asyncio.subprocess.STDOUT)
         try:
             assert proc.stdout is not None
             while True:

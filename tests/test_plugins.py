@@ -116,7 +116,7 @@ def test_conf_override_apply_changes_and_roundtrip(tmp_path: Path):
     class FakeAdapter:
         executor = LocalExecutor()
 
-    p = ConfOverridePlugin({"files": [{"path": str(conf), "params": {"langid-min-chars": 100000}}], "reload": f"touch {marker}"}, ctx(adapter=FakeAdapter()))
+    p = ConfOverridePlugin({"files": [{"path": str(conf), "params": {"langid-min-chars": 100000}}], "reload": f"touch {marker.as_posix()}"}, ctx(adapter=FakeAdapter()))
 
     async def go():
         await p.pre_run()

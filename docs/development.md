@@ -53,3 +53,22 @@ CI（`.github/workflows/ci.yml`）は `test`（ruff + pytest）と `ui`（Playwr
 pip wheel --no-deps -w dist .
 unzip -l dist/semishigure-*.whl          # semishigure/ 以下（ui/static のベンダー同梱物と scenario/template.yaml を含む）だけが入る
 ```
+
+## Windows デスクトップ版のビルド
+
+インストーラは pynsist（MIT）と NSIS（zlib）で作ります。埋め込み Python 3.12 と、依存の Windows 用 wheel、Semishigure の wheel を同梱し、`semishigure.desktop:main`（アプリ窓）を起動する `Semishigure.exe`、コンソール版、CLI の `semishigure.exe` を作ります。
+
+```bash
+pip install pynsist pillow          # NSIS: Windows は https://nsis.sourceforge.io/、Linux は apt install nsis
+python tools/set_icon.py path/to/icon.png   # アイコンの差し替え（assets/semishigure.ico と画面の favicon を生成）
+python tools/build_windows.py       # build/nsis/Semishigure-<版>-setup.exe
+```
+
+Linux からのクロスビルドもできます（python.org から埋め込み Python を取得）。GitHub Actions の `release-windows` ワークフローは、`v*` のタグを push すると Windows ランナーで pytest → ビルド → Release への添付まで行います。手動実行（workflow_dispatch）ではアーティファクトとして取得できます。
+
+リリース手順:
+
+1. アイコンを `python tools/set_icon.py <png>` で入れる
+2. `pyproject.toml`、`semishigure/__init__.py`、`installer.cfg` の版と `CHANGELOG.md` を更新
+3. `git tag v1.0.0 && git push origin v1.0.0`
+4. Actions の `release-windows` が Release に `Semishigure-1.0.0-setup.exe` を添付する

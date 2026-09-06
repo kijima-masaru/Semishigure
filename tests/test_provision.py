@@ -51,11 +51,11 @@ async def test_freeswitch_files_and_restore(tmp_path: Path, monkeypatch):
     # include lines were added to the vanilla files (and backed up)
     assert 'data="default/*.xml"' in (conf / "directory" / "default.xml").read_text()
     assert 'data="default/*.xml"' in (conf / "dialplan" / "default.xml").read_text()
-    assert {m["path"] for m in rec["modified_files"]} == {str(conf / "directory" / "default.xml"), str(conf / "dialplan" / "default.xml")}
+    assert {Path(m["path"]) for m in rec["modified_files"]} == {conf / "directory" / "default.xml", conf / "dialplan" / "default.xml"}  # paths are POSIX-joined (remote PBX host)
     assert rec["secret_names"] == ["lt_9100", "lt_9001", "lt_9002"]
     store = ProvisionStore(tmp_path / "home" / "provision.yaml")
     store.put("p", rec)
-    assert "lt_9001" in store.get("p")["secret_names"] and pw not in (tmp_path / "home" / "provision.yaml").read_text()
+    assert "lt_9001" in store.get("p")["secret_names"] and pw not in (tmp_path / "home" / "provision.yaml").read_text(encoding="utf-8")
     res = await prov.remove(store.get("p"))
     assert not (conf / "directory" / "default" / "semishigure-loadtest.xml").exists()
     assert (conf / "directory" / "default.xml").read_text() == VANILLA_DIR and (conf / "dialplan" / "default.xml").read_text() == VANILLA_DP

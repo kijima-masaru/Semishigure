@@ -100,7 +100,7 @@ async def _cmd_call(args: argparse.Namespace) -> int:
     snap["finished_at"] = time.time()
     _print_report(snap)
     if args.report:
-        Path(args.report).write_text(json.dumps(snap, indent=2, ensure_ascii=False))
+        Path(args.report).write_text(json.dumps(snap, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"report written to {args.report}")
     ok = all(r["end_reason"] in ("duration_elapsed", "remote_bye", "local_bye") and r["invite_to_200_ms"] is not None for r in snap["caller_calls"])
     return exit_code if exit_code else (0 if ok else 1)
@@ -229,7 +229,7 @@ async def _cmd_load(args: argparse.Namespace) -> int:
         for label, value in summ["plugin_rows"]:
             print(f"  {label}: {value}")
     if args.report:
-        Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False))
+        Path(args.report).write_text(json.dumps({"summary": summ, "series": list(run.stats.series), "events": list(run.stats.events)}, indent=1, ensure_ascii=False), encoding="utf-8")
         print(f"report written to {args.report}")
     return exit_code
 
@@ -392,6 +392,8 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     scenarios = Path(args.scenarios) if args.scenarios else (Path("examples") if Path("examples").is_dir() else DEFAULT_DIR / "scenarios")
     print(f"scenarios: {scenarios}")
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"warning: listening on {args.host}: the UI has no authentication and the secrets API stores passwords; put TLS and access control in front of it", file=sys.stderr)
     app = create_app(scenario_dir=scenarios, store=None if args.no_store else RunStore())
     uvicorn.run(app, host=args.host, port=args.port, log_level="info" if args.verbose else "warning")
     return 0
