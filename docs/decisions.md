@@ -101,3 +101,14 @@
 | 項目 | 判断 | 理由 |
 |---|---|---|
 | Go / Rust への差し替え | 行わない（境界だけ維持） | 50 通話（メディア 100 セッション）で 5 ms 以内 99.7%、欠落 0、失敗 0。設計の目標を Python 実装で満たしている（`docs/capacity.md`） |
+
+## FusionPBX 経由の FreeSWITCH で決めたこと
+
+| 項目 | 判断 | 理由 |
+|---|---|---|
+| 導入方法 | FusionPBX 5.5 をネイティブ導入し、管理画面は PHP の内蔵サーバ（`router.php`）で動かす。FreeSWITCH は `deploy/freeswitch` のソースビルドに `mod_lua` / `mod_pgsql` などを足したもの | この環境では Docker イメージと PPA が取れない。Semishigure が接続するのは FreeSWITCH なので、管理画面のサーバ構成（nginx + php-fpm か内蔵サーバか）は検証結果に影響しない |
+| 内線パスワード | FusionPBX が自動生成した値をそのまま使い、`secret:fusion_9100` などの参照で渡す | 共有事項 6 節（秘密情報を YAML に書かない）。画面で決めたパスワードを YAML に写す手順を残さない |
+| 応答側の待ち受けポート | `answerer_port: 5082` | FusionPBX の `external` プロファイルが 5080 を bind する |
+| 着信グループの Destination | 作成後に Enabled が True であることを確認する手順を README に入れる | 5.5 の画面で追加した宛先が無効のまま保存され、鳴らないことがあった |
+| `limit_max` の扱い | アプリの `max_calls` を `limit_max` と同じ 5 にし、PBX 側の制限は直接発信の検証でだけ確認 | 着信グループ経由では FusionPBX の `limit_max` が掛からないため、アプリ側で同じ挙動を作る（決定 2 と同じ） |
+| 応答時間の差 | INVITE→200 が素の FreeSWITCH より約 90 ms 長いのは PBX 側（Lua + PostgreSQL）の処理として記録し、アプリ側では補正しない | 手順書の目的は PBX の処理時間を N ごとに見ることで、差そのものが記録対象 |

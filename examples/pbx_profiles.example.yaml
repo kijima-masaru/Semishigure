@@ -55,3 +55,18 @@ profiles:
     extra:
       ami_user: semishigure
       # asterisk_conf: /path/to/asterisk.conf   # when Asterisk runs with -C (deploy/asterisk/run-native.sh)
+
+  - name: fusionpbx-local       # FreeSWITCH managed by FusionPBX (deploy/fusionpbx); the app runs on the same host
+    type: freeswitch
+    host: 192.0.2.2            # address of the FusionPBX "internal" profile (fs_cli -x "sofia status")
+    sip_port: 5060
+    domain: pbx.semishigure.test
+    environment: dev
+    executor: local
+    esl_host: 127.0.0.1
+    esl_port: 8021
+    esl_password_ref: secret:esl   # FusionPBX default is ClueCon (autoload_configs/event_socket.conf.xml)
+    fs_cli: /usr/local/freeswitch/bin/fs_cli
+    log_path: /var/log/freeswitch/freeswitch.log
+    conf_dir: /etc/freeswitch
+    process_name: freeswitch
