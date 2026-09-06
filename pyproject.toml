@@ -1,13 +1,20 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "semishigure"
-version = "0.1.0"
-description = "PBX (FreeSWITCH / Asterisk) concurrent-call load tester with a built-in SIP/RTP stack"
+version = "1.0.0"
+description = "PBX (FreeSWITCH / Asterisk / FusionPBX) concurrent-call load tester with a built-in SIP/RTP stack"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Communications :: Telephony",
+]
 dependencies = [
     "pyyaml>=6.0",          # MIT
     "cryptography>=42.0",   # Apache-2.0 / BSD-3-Clause
@@ -19,6 +26,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+desktop = [
+    "pywebview>=6.0",       # BSD-3-Clause (Windows: pythonnet MIT, clr_loader MIT)
+]
 dev = [
     "pytest>=8.0",          # MIT
     "pytest-asyncio>=0.23", # Apache-2.0
@@ -27,12 +37,16 @@ dev = [
 
 [project.scripts]
 semishigure = "semishigure.cli:main"
+semishigure-desktop = "semishigure.desktop:main_console"
+
+[project.gui-scripts]
+semishigure-app = "semishigure.desktop:main"
 
 [tool.setuptools.packages.find]
 include = ["semishigure*"]
 
 [tool.setuptools.package-data]
-semishigure = ["ui/static/*", "ui/static/vendor/*", "ui/static/vendor/fonts/*", "scenario/template.yaml"]
+semishigure = ["ui/static/*", "ui/static/vendor/*", "ui/static/vendor/fonts/*", "scenario/template.yaml", "*.png"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

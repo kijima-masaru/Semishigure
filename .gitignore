@@ -1,29 +1,29 @@
-__pycache__/
-*.pyc
+!audio/.gitkeep
+!deploy/asterisk/log/.gitkeep
+!deploy/freeswitch/log/.gitkeep
+# recorded / generated audio
+# secrets (never commit)
+*.db
 *.egg-info/
-.venv/
-venv/
-build/
-dist/
+*.log
+*.pyc
+*.sqlite3
+.env
 .pytest_cache/
 .ruff_cache/
-*.sqlite3
-*.db
-runs/
-*.log
-# secrets (never commit)
-secrets.enc
-master.key
-.env
-# recorded / generated audio
+.venv/
+__pycache__/
 audio/*.wav
-!audio/.gitkeep
-deploy/freeswitch/log/*
-!deploy/freeswitch/log/.gitkeep
-deploy/freeswitch/db/
-deploy/freeswitch/ca/*.crt
-deploy/asterisk/runtime/
-deploy/asterisk/log/*
-!deploy/asterisk/log/.gitkeep
-deploy/freeswitch/certs/
+build/
 deploy/asterisk/certs/
+deploy/asterisk/log/*
+deploy/asterisk/runtime/
+deploy/freeswitch/ca/*.crt
+deploy/freeswitch/certs/
+deploy/freeswitch/db/
+deploy/freeswitch/log/*
+dist/
+master.key
+runs/
+secrets.enc
+venv/

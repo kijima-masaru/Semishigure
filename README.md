@@ -10,6 +10,18 @@ PBX（FreeSWITCH / Asterisk / FusionPBX）に対する同時通話の負荷検�
 
 Docker は不要です。検証用の PBX を自分で立てる必要もありません（開発時の確認用に `deploy/` があります。`docs/development.md`）。
 
+## Windows デスクトップ版
+
+GitHub の Releases から `Semishigure-<版>-setup.exe` をダウンロードして実行します。Python の別途インストールは不要です（3.12 を同梱）。
+
+- スタートメニューの「Semishigure」でアプリ窓が開きます（Edge WebView2 を使用。無い場合は既定のブラウザで開きます）。窓を閉じると進行中のランを止めて終了します
+- 「Semishigure (コンソール)」はサーバのログを見ながら使う版で、既定のブラウザで画面を開きます
+- コマンド `semishigure`（CLI）も同梱されます。インストール先の `bin` フォルダを PATH に足すか、フルパスで実行してください
+- データは `C:\Users\<名前>\.semishigure\` に置かれます（プロファイル、シナリオ、暗号化ストア、結果、`desktop.log`）
+- 待ち受けは 127.0.0.1 だけです。他の PC からは使えません
+
+負荷を掛ける PBX へは、Windows から SIP（UDP）と RTP が届く必要があります。Windows Defender ファイアウォールの許可を求められたら「プライベート ネットワーク」で許可してください。RTP の 20 ms 送出は Python 3.12 の高分解能タイマーで動きますが、大きな同時数（30 本以上）を掛ける場合は WSL2 か Linux での実行を推奨します。
+
 ## インストール
 
 ```bash
