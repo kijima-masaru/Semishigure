@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "semishigure"
-version = "1.0.1"
+version = "1.0.2"
 description = "PBX (FreeSWITCH / Asterisk / FusionPBX) concurrent-call load tester with a built-in SIP/RTP stack"
 readme = "README.md"
 license = "MIT"
@@ -27,7 +27,6 @@ dependencies = [
 
 [project.optional-dependencies]
 desktop = [
-    "pywebview>=6.0",       # BSD-3-Clause (Windows: pythonnet MIT, clr_loader MIT)
 ]
 dev = [
     "pytest>=8.0",          # MIT

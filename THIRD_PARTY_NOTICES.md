@@ -13,9 +13,6 @@ Semishigure は次のソフトウェアを利用・同梱しています。い�
 | websockets | BSD-3-Clause | WebSocket |
 | asyncssh | EPL-2.0（無改変で利用） | SSH での PBX ホスト接続 |
 | openpyxl | MIT | 記録表 xlsx |
-| pywebview（デスクトップ版のみ） | BSD-3-Clause | アプリ窓（Windows は Edge WebView2） |
-| pythonnet, clr_loader（デスクトップ版のみ） | MIT | pywebview の Windows バックエンド |
-| bottle, proxy_tools（デスクトップ版のみ） | MIT | pywebview の依存 |
 | Python 3.12（デスクトップ版に埋め込み） | PSF License | ランタイム |
 
 ## 画面に同梱しているもの（`semishigure/ui/static/vendor/`）

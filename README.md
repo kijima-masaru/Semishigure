@@ -16,7 +16,7 @@ Docker は不要です。検証用の PBX を自分で立てる必要もあり�
 
 GitHub の Releases から `Semishigure-<版>-setup.exe` をダウンロードして実行します。Python の別途インストールは不要です（3.12 を同梱）。
 
-- スタートメニューの「Semishigure」でアプリ窓が開きます（Edge WebView2 を使用。無い場合は既定のブラウザで開きます）。窓を閉じると進行中のランを止めて終了します
+- スタートメニューの「Semishigure」でアプリ窓が開きます（Microsoft Edge か Google Chrome のアプリ モード。どちらも無い場合は既定のブラウザで開きます）。窓を閉じると進行中のランを止めて終了します
 - コマンド `semishigure`（CLI）と `semishigure-desktop`（コンソール版: サーバのログを表示しながら既定ブラウザで画面を開く）も同梱されます。インストール先の `bin` フォルダを PATH に足すか、フルパスで実行してください
 - データは `C:\Users\<名前>\.semishigure\` に置かれます（プロファイル、シナリオ、暗号化ストア、結果、`desktop.log`）
 - 待ち受けは 127.0.0.1 だけです。他の PC からは使えません
