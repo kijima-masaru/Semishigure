@@ -261,7 +261,57 @@ async def _cmd_pbx(args: argparse.Namespace) -> int:
         return 0
     if args.pbx_cmd == "test":
         return await _pbx_test(profile)
+    if args.pbx_cmd in ("provision", "unprovision"):
+        return await _pbx_provision(profile, args)
     return 0
+
+
+async def _pbx_provision(profile: PbxProfile, args: argparse.Namespace) -> int:
+    """Create (or remove) the extensions and the ring group on the PBX."""
+    from semishigure.pbx.provision import Provisioner, ProvisionError, ProvisionPlan, ProvisionStore
+
+    secrets = SecretStore()
+    pstore = ProvisionStore()
+    executor = build_executor(profile, secrets)
+    await executor.connect()
+    try:
+        if args.pbx_cmd == "unprovision":
+            record = pstore.get(profile.name)
+            if record is None:
+                print(f"{profile.name}: nothing to remove (not provisioned)")
+                return 1
+            res = await Provisioner(profile, executor, secrets, None).remove(record)
+            pstore.delete(profile.name)
+            for n in res["notes"]:
+                print(f"  {n}")
+            print(f"{profile.name}: removed")
+            return 0
+        if pstore.get(profile.name):
+            print(f"{profile.name}: already provisioned (run `semishigure pbx unprovision {profile.name}` first)", file=sys.stderr)
+            return 1
+        plan = ProvisionPlan(caller=args.caller, answerers=[a.strip() for a in args.answerers.split(",") if a.strip()], ring_group=args.ring_group, max_calls=args.max_calls, group_limit=args.group_limit, secret_prefix=args.secret_prefix, domain=args.domain or profile.domain, context=args.context, directory=args.directory, db_password_ref=args.db_password_ref)
+        adapter = None
+        try:
+            adapter = make_adapter(profile, executor, secrets)
+            await adapter.connect()
+        except Exception:  # noqa: BLE001
+            adapter = None
+        try:
+            record = await Provisioner(profile, executor, secrets, adapter).apply(plan)
+        finally:
+            if adapter is not None:
+                await adapter.close()
+        pstore.put(profile.name, record)
+        print(f"{profile.name}: created extensions {', '.join(record['extensions'])} and ring group {record['ring_group']}")
+        print(f"  passwords stored as secret:{', secret:'.join(record['secret_names'])}")
+        for n in record["notes"]:
+            print(f"  {n}")
+        return 0
+    except ProvisionError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        await executor.close()
 
 
 async def _pbx_test(profile: PbxProfile) -> int:
@@ -447,6 +497,20 @@ def build_parser() -> argparse.ArgumentParser:
     ps.add_argument("name")
     pt = psub.add_parser("test", help="connect and read status / metrics / log")
     pt.add_argument("name")
+    pp = psub.add_parser("provision", help="create the load-test extensions and ring group on the PBX")
+    pp.add_argument("name")
+    pp.add_argument("--caller", default="9100")
+    pp.add_argument("--answerers", default="9001,9002,9003,9004", help="comma separated")
+    pp.add_argument("--ring-group", default="8001")
+    pp.add_argument("--max-calls", type=int, default=5)
+    pp.add_argument("--group-limit", type=int, default=20, help="0 = no limit")
+    pp.add_argument("--secret-prefix", default="ext", help="passwords go to secret:<prefix>_<extension>")
+    pp.add_argument("--domain", default="", help="FusionPBX tenant (default: profile domain)")
+    pp.add_argument("--context", default="default", help="FreeSWITCH dialplan context")
+    pp.add_argument("--directory", default="default", help="FreeSWITCH directory name")
+    pp.add_argument("--db-password-ref", default="", help="FusionPBX: secret:NAME for the database")
+    pu = psub.add_parser("unprovision", help="remove what `pbx provision` created")
+    pu.add_argument("name")
     px.set_defaults(func=lambda a: asyncio.run(_cmd_pbx(a)))
 
     a = sub.add_parser("audio", help="audio helpers")

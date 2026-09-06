@@ -24,6 +24,7 @@ from semishigure.core.run import ABSOLUTE_MAX_CONCURRENCY, ProdConfirmationRequi
 from semishigure.core.store import RunStore
 from semishigure.pbx.adapter import make_adapter
 from semishigure.pbx.profile import PbxProfile, ProfileStore, build_executor
+from semishigure.pbx.provision import Provisioner, ProvisionError, ProvisionPlan, ProvisionStore, flavor_of
 from semishigure.plugins.registry import describe_builtin
 from semishigure.scenario.model import load_scenario, scenario_from_dict
 from semishigure.secrets import SecretError, SecretStore
@@ -98,6 +99,20 @@ class SecretCheck(BaseModel):
     names: list[str]
 
 
+class ProvisionRequest(BaseModel):
+    profile: str
+    caller: str = "9100"
+    answerers: list[str] = ["9001", "9002", "9003", "9004"]
+    ring_group: str = "8001"
+    max_calls: int = 5
+    group_limit: int = 20
+    secret_prefix: str = "ext"
+    domain: str = ""
+    context: str = "default"
+    directory: str = "default"
+    db_password_ref: str = ""
+
+
 class GuideScenario(BaseModel):
     """Inputs of the setup guide (docs: README「セットアップガイド」); the server writes the YAML."""
 
@@ -129,6 +144,7 @@ class AppState:
         self.store = store
         self.secrets = SecretStore()
         self.profiles = ProfileStore()
+        self.provision = ProvisionStore()
         self.run: Run | None = None
         self.precheck_run: Run | None = None
         self.precheck: dict | None = None  # {"running", "started_at", "hold_seconds", "scenario", "result"}
@@ -316,6 +332,69 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
         except SecretError as exc:
             raise HTTPException(400, str(exc)) from exc
         return {"stored": name, "file": str(state.secrets.file)}
+
+    # -- PBX provisioning (extensions + ring group created on the PBX) ------------------
+
+    @app.get("/api/provision")
+    async def list_provision() -> dict:
+        return {"provisioned": state.provision.load_all(), "path": str(state.provision.path)}
+
+    @app.post("/api/provision")
+    async def provision(req: ProvisionRequest) -> dict:
+        profile = state.profiles.get(req.profile)
+        if profile is None:
+            raise HTTPException(404, f"PBX profile {req.profile!r} not found")
+        if state.provision.get(req.profile):
+            raise HTTPException(409, f"{req.profile} は既にプロビジョニング済みです。先に元に戻してください")
+        plan = ProvisionPlan(caller=req.caller.strip(), answerers=[a.strip() for a in req.answerers if a.strip()], ring_group=req.ring_group.strip(), max_calls=req.max_calls, group_limit=req.group_limit, secret_prefix=req.secret_prefix.strip() or "ext", domain=req.domain.strip() or profile.domain, context=req.context.strip() or "default", directory=req.directory.strip() or "default", db_password_ref=req.db_password_ref.strip())
+        if not plan.caller or not plan.answerers or not plan.ring_group:
+            raise HTTPException(400, "caller, answerers and ring_group are required")
+        executor = build_executor(profile, state.secrets)
+        adapter = None
+        try:
+            await executor.connect()
+            try:
+                adapter = make_adapter(profile, executor, state.secrets)
+                await adapter.connect()
+            except Exception as exc:  # noqa: BLE001
+                log.info("provision: adapter unavailable, using the CLI (%s)", exc)
+                adapter = None
+            record = await Provisioner(profile, executor, state.secrets, adapter).apply(plan)
+        except ProvisionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except SecretError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        finally:
+            for closer in (adapter, executor):
+                if closer is not None:
+                    try:
+                        await closer.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+        state.provision.put(req.profile, record)
+        return {"record": record, "flavor": flavor_of(profile)}
+
+    @app.delete("/api/provision/{name}")
+    async def unprovision(name: str) -> dict:
+        record = state.provision.get(name)
+        if record is None:
+            raise HTTPException(404, "not provisioned")
+        profile = state.profiles.get(name)
+        if profile is None:
+            raise HTTPException(404, f"PBX profile {name!r} not found")
+        executor = build_executor(profile, state.secrets)
+        try:
+            await executor.connect()
+            res = await Provisioner(profile, executor, state.secrets, None).remove(record)
+        except ProvisionError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        finally:
+            try:
+                await executor.close()
+            except Exception:  # noqa: BLE001
+                pass
+        state.provision.delete(name)
+        return res
 
     @app.post("/api/guide/scenario")
     async def guide_scenario(req: GuideScenario) -> dict:

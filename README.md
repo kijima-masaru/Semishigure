@@ -40,7 +40,7 @@ tests/               単体テストと UAC⇄UAS ループバックテスト（
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                   # 53 tests, PBX 不要
+pytest                                   # 56 tests, PBX 不要
 ```
 
 ## 検証環境（FreeSWITCH / Asterisk）
@@ -144,7 +144,24 @@ semishigure load examples/fusionpbx.yaml --schedule "5:40,20:40,8:40" --duration
 
 `semishigure serve` で http://127.0.0.1:8080。ガイド / 実行 / シナリオ / PBX / 結果の 5 画面（URL は `#guide` `#run` `#results/12` のように同期）。
 
-- ガイド（セットアップガイド）: PBX プロファイルが 1 つも無いときは最初に開きます。5 ステップで負荷検証まで進めます。1. PBX に接続（プロファイルの保存、ESL / AMI のパスワードを暗号化ストアへ、接続テスト）→ 2. 内線と番号（発信側・応答側の内線、着信グループ、パスワードの保存と解決の確認）→ 3. シナリオ（入力からサーバが YAML を生成）→ 4. 事前チェック（NG の項目ごとに確認点を表示）→ 5. 負荷検証（3 本で 1 分 / 段階 5→10→20 / 実行タブで手動）。入力は localStorage に保存され、パスワードの値は保存しません。
+- ガイド（セットアップガイド）: PBX プロファイルが 1 つも無いときは最初に開きます。6 ステップで負荷検証まで進めます。1. PBX に接続（プロファイルの保存、ESL / AMI のパスワードを暗号化ストアへ、接続テスト）→ 2. 内線を作る（下記のプロビジョニング。既存の内線を使う選択も可）→ 3. 内線と番号（パスワードの保存と解決の確認）→ 4. シナリオ（入力からサーバが YAML を生成）→ 5. 事前チェック（NG の項目ごとに確認点を表示）→ 6. 負荷検証（3 本で 1 分 / 段階 5→10→20 / 実行タブで手動）。入力は localStorage に保存され、パスワードの値は保存しません。
+
+## PBX 側の設定をアプリから作る（プロビジョニング）
+
+負荷検証に使う内線（発信側 1 つ、応答側 n 個）と着信グループを、Semishigure が PBX に作ります。パスワードは自動生成して PBX の設定に書き込み、暗号化ストアに `secret:<接頭辞>_<内線>` として保存します。変更したファイルはバックアップを取り、`unprovision` で元に戻します。ガイドの 2 番目のステップ、または CLI:
+
+```bash
+semishigure pbx provision dev-local --caller 9100 --answerers 9001,9002,9003,9004 --ring-group 8001 --group-limit 20
+semishigure pbx unprovision dev-local
+```
+
+| PBX | 作られるもの | 反映 |
+|---|---|---|
+| FreeSWITCH（XML） | `directory/<name>/semishigure-loadtest.xml`（内線）、`dialplan/<context>/semishigure-loadtest.xml`（着信グループ = bridge の同時鳴動 + `limit` の上限、内線への直接発信）。`default.xml` に include が無ければ追加 | `reloadxml` |
+| Asterisk | `semishigure-loadtest-pjsip.conf`（endpoint / auth / aor、context=semishigure）、`semishigure-loadtest-extensions.conf`（Dial の同時鳴動 + `GROUP_COUNT` の上限、X-Semishigure-Call の引き継ぎ）。`pjsip.conf` / `extensions.conf` の末尾に `#include` | `module reload res_pjsip.so`、`dialplan reload` |
+| FusionPBX（プロファイルの `extra.flavor: fusionpbx`） | `v_extensions`、`v_ring_groups`、`v_ring_group_destinations`、`v_dialplans`（管理画面が作るのと同じ行）。既にある内線はそのまま使い、そのパスワードを暗号化ストアへ | キャッシュ削除、`reloadxml`。`/etc/fusionpbx/config.conf` を読める権限か、DB パスワードの `secret:` が必要 |
+
+プロファイルの `conf_dir`（FreeSWITCH は `directory/` と `dialplan/` がある場所、Asterisk は `pjsip.conf` の場所）と、Asterisk を `-C` で起動している場合は `extra.asterisk_conf` を設定してください。作成の記録は `~/.semishigure/provision.yaml`（パスワードは含みません）。
 
 - 実行: 手順書の順（1. 何を掛けるか → 2. どう上げるか（固定 N / 段階 / プリセット）→ 3. 記録）のフォーム、「この設定で実行します」の解決結果（host / env / 上限 / secret 名）、事前チェックの進行表示と結果。ラン中は目標 N のスライダーだけを主操作にし、状態バー（確立 / 接続中 / 失敗 / ステップ / 残り秒 / 自動減少）、指標タイル、uPlot のチャート（目標・確立・接続中・PBX channels・RTP 遅れ、ホバーで値）、通話一覧（フィルタ・ソート）、PBX ホスト（最終取得時刻と stale 表示、ログ tail）。「全通話を切る」「ランを停止」は最下部の危険ゾーンにあり確認ダイアログを経由する。終了後は結果 / xlsx / 再実行への導線。
 - シナリオ: YAML 編集と保存時の検証（エラーは欄の直下、フォーカス移動）。
