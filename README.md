@@ -40,12 +40,12 @@ tests/               単体テストと UAC⇄UAS ループバックテスト（
 ```bash
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-pytest                                   # 24 tests, PBX 不要
+pytest                                   # 51 tests, PBX 不要
 ```
 
 ## 検証環境（FreeSWITCH / Asterisk）
 
-`deploy/freeswitch/README.md` と `deploy/asterisk/README.md` を参照（Docker compose、WSL2 推奨）。どちらも内線 9100 と 9001〜9004、着信グループ 8001（制限 20）、ドメイン `pbx.semishigure.test` で同じ構成です。
+`deploy/freeswitch/README.md` と `deploy/asterisk/README.md` を参照（Docker compose、WSL2 推奨）。どちらも内線 9100 と 9001〜9004、着信グループ 8001（制限 20）、ドメイン `pbx.semishigure.test` で同じ構成です。FusionPBX の管理画面で設定した FreeSWITCH は `deploy/fusionpbx/README.md`（ネイティブ導入）。
 
 ## 段階 1 の確認コマンド
 
@@ -129,6 +129,16 @@ semishigure load examples/dev-asterisk.yaml --pbx-profile asterisk-local --sched
 ```
 
 `type: asterisk` のプロファイルでは AMI（`Command` アクションとイベント）を使い、使えなければ `asterisk -rx` に落ちます。実測は `docs/stage5-asterisk-report.md`。
+
+## FusionPBX 経由の FreeSWITCH
+
+```bash
+export SEMISHIGURE_SECRET_FUSION_9100=...   # 管理画面で自動生成された内線パスワード（9001〜9004 も同様）
+semishigure call examples/fusionpbx.yaml --duration 10
+semishigure load examples/fusionpbx.yaml --schedule "5:40,20:40,8:40" --duration 60 --ramp 1
+```
+
+内線と着信グループは FusionPBX の画面（Accounts → Extensions、Apps → Ring Groups）で作ります。導入と画面操作の自動化は `deploy/fusionpbx/`、実測は `docs/fusionpbx-report.md`。
 
 ## 画面
 

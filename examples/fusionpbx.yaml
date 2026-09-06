@@ -1,0 +1,42 @@
+# FusionPBX 経由の FreeSWITCH（deploy/fusionpbx/README.md）。
+# 内線 9100 から着信グループ 8001（Simultaneous、宛先 9001〜9004）へ発信し、9001〜9004 で応答する。
+# 内線のパスワードは FusionPBX が自動生成する。管理画面で確認して secret: 参照で渡す:
+#   export SEMISHIGURE_SECRET_FUSION_9100=...  (9001..9004 も同様) または semishigure secret set fusion_9100
+name: fusionpbx-basic
+description: FusionPBX-managed FreeSWITCH, caller 9100 -> ring group 8001 -> 9001..9004
+pbx_profile: fusionpbx-local
+pbx:
+  host: 192.0.2.2                # FusionPBX の internal プロファイルが bind するアドレス（sofia status で確認）
+  sip_port: 5060
+  domain: pbx.semishigure.test   # FusionPBX のテナント（ドメイン）名
+  caller_port: 5072
+  answerer_port: 5082            # 5080 は FusionPBX の external プロファイルが使うので避ける
+  rtp_port_start: 20000
+  rtp_port_end: 20999
+caller:
+  auth_user: "9100"
+  auth_password_ref: secret:fusion_9100
+  from_number: "9100"
+  destination: "8001"
+  headers: { X-LANG: en, X-ENABLE-TRANSCRIBE: "true", X-ENABLE-SUMMARIZE: "true", X-ENABLE-TRANSLATE: "true" }
+  audio: "synth:60"
+answerer:
+  extensions:                    # max_calls は FusionPBX の内線 limit_max（既定 5）に合わせる
+    - { user: "9001", password_ref: secret:fusion_9001, max_calls: 5 }
+    - { user: "9002", password_ref: secret:fusion_9002, max_calls: 5 }
+    - { user: "9003", password_ref: secret:fusion_9003, max_calls: 5 }
+    - { user: "9004", password_ref: secret:fusion_9004, max_calls: 5 }
+  audio: "synth:60"
+load: { target_concurrency: 1, ramp_rate: 1/s, call_duration: 60s }
+monitor:
+  interval: 2s
+  commands:
+    - { name: channels_count, api: show channels count }
+plugins:
+  log_patterns:
+    key: "^([0-9a-f-]{36})"      # FusionPBX の freeswitch.log は行頭に UUID が付く
+    counters:
+      - { name: warnings, regex: "\\[WARNING\\]" }
+      - { name: ring_group_lua, regex: "ring_groups" }
+    timers:
+      - { name: channel_lifetime, start: "New Channel sofia/internal/9100", end: "Close Channel sofia/internal/9100" }
