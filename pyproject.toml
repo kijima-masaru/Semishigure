@@ -32,7 +32,7 @@ semishigure = "semishigure.cli:main"
 include = ["semishigure*"]
 
 [tool.setuptools.package-data]
-semishigure = ["ui/static/*", "ui/static/vendor/*"]
+semishigure = ["ui/static/*", "ui/static/vendor/*", "ui/static/vendor/fonts/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
