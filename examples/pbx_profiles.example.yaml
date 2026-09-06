@@ -5,6 +5,9 @@ profiles:
     type: freeswitch
     host: 127.0.0.1            # SIP address of the internal profile
     sip_port: 5060
+    sip_transport: udp         # udp | tcp | tls (tls uses sip_tls_port)
+    sip_tls_port: 5061
+    tls_verify: false          # the dev PBX uses a self-signed certificate; true (+ tls_ca) elsewhere
     domain: pbx.semishigure.test
     rtp_port_start: 16384
     rtp_port_end: 32768

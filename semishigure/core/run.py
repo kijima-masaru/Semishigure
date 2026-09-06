@@ -35,7 +35,11 @@ class ProdConfirmationRequired(RuntimeError):
 def apply_profile(scenario: Scenario, profile: PbxProfile) -> None:
     """The PBX profile is the source of truth for where the PBX is."""
     scenario.pbx.host = profile.host
-    scenario.pbx.sip_port = profile.sip_port
+    scenario.pbx.transport = (profile.sip_transport or "udp").lower()
+    scenario.pbx.sip_port = profile.sip_tls_port if scenario.pbx.transport == "tls" else profile.sip_port
+    scenario.pbx.tls_verify = profile.tls_verify
+    if profile.tls_ca:
+        scenario.pbx.tls_ca = profile.tls_ca
     if profile.domain:
         scenario.pbx.domain = profile.domain
     scenario.pbx.environment = profile.environment

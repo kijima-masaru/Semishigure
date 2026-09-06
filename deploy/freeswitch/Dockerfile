@@ -44,6 +44,7 @@ RUN ldconfig && ln -s /usr/local/freeswitch/bin/fs_cli /usr/local/bin/fs_cli \
  && mkdir -p /etc/semishigure-fs /var/log/freeswitch /var/lib/freeswitch/db /var/run/freeswitch
 COPY conf /etc/semishigure-fs
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY gen-certs.sh /usr/local/bin/gen-certs.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/gen-certs.sh && apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 EXPOSE 5060/udp 8021/tcp
 ENTRYPOINT ["/entrypoint.sh"]

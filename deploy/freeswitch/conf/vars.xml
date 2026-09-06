@@ -10,6 +10,10 @@
   <X-PRE-PROCESS cmd="exec-set" data="ext_sip_ip=echo ${SEMI_FS_EXT_SIP_IP:-$${sip_ip}}"/>
   <X-PRE-PROCESS cmd="exec-set" data="ext_rtp_ip=echo ${SEMI_FS_EXT_RTP_IP:-$${sip_ip}}"/>
   <X-PRE-PROCESS cmd="exec-set" data="sip_port=echo ${SEMI_FS_SIP_PORT:-5060}"/>
+  <!-- TLS (SIP over TLS on tls_port; certificates in certs_dir: agent.pem + cafile.pem). -->
+  <X-PRE-PROCESS cmd="exec-set" data="tls_enabled=echo ${SEMI_FS_TLS:-true}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="tls_port=echo ${SEMI_FS_TLS_PORT:-5061}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="certs_dir=echo ${SEMI_FS_CERTS_DIR:-/etc/semishigure-fs/certs}"/>
   <X-PRE-PROCESS cmd="exec-set" data="rtp_start_port=echo ${SEMI_FS_RTP_START:-16384}"/>
   <X-PRE-PROCESS cmd="exec-set" data="rtp_end_port=echo ${SEMI_FS_RTP_END:-32768}"/>
 

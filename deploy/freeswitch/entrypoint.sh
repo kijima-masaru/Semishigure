@@ -15,6 +15,7 @@ if [ "${SEMI_FS_SSH:-0}" = "1" ]; then
   mkdir -p /run/sshd
   /usr/sbin/sshd -p "${SEMI_FS_SSH_PORT:-2222}"
 fi
+/usr/local/bin/gen-certs.sh "${SEMI_FS_CERTS_DIR:-/etc/semishigure-fs/certs}"
 exec /usr/local/freeswitch/bin/freeswitch -nonat -nc -nf \
   -conf /etc/semishigure-fs -log /var/log/freeswitch -db /var/lib/freeswitch/db -run /var/run/freeswitch \
   -mod /usr/local/freeswitch/lib/freeswitch/mod "$@"

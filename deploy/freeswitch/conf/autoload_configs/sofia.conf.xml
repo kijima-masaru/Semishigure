@@ -50,7 +50,14 @@
         <param name="session-timeout" value="0"/>
         <param name="all-reg-options-ping" value="false"/>
         <param name="hold-music" value="silence"/>
-        <param name="tls" value="false"/>
+        <param name="tls" value="$${tls_enabled}"/>
+        <param name="tls-only" value="false"/>
+        <param name="tls-bind-params" value="transport=tls"/>
+        <param name="tls-sip-port" value="$${tls_port}"/>
+        <param name="tls-cert-dir" value="$${certs_dir}"/>
+        <param name="tls-verify-policy" value="none"/>
+        <param name="tls-verify-date" value="false"/>
+        <param name="tls-version" value="tlsv1.2"/>
       </settings>
     </profile>
   </profiles>

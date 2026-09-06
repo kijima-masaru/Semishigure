@@ -9,7 +9,7 @@ SIPp（発信）と pjsua（応答）の役割を自前の SIP / RTP 実装で�
 - 秘密情報は YAML に書かず `secret:NAME` 参照（環境変数または暗号化ストア）
 - 異常終了時（SIGINT / SIGTERM / 例外）に全通話の BYE と REGISTER 解除を実行
 
-設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応・DTMF / REFER ステップ・記録表の xlsx 出力まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。残りは TLS トランスポートと RTP 送出部の別言語化です。
+設計書: `Semishigure 設計.md`（別管理）。段階計画は設計書 7 章。**段階 1〜4 と、段階 5 の Asterisk 対応・DTMF / REFER ステップ・記録表の xlsx 出力まで完了**。段階 4 は汎用のプラグイン機構として実装し、Flatline は設定例で示しています。SIP は UDP / TCP / TLS に対応しています。
 
 ## 構成
 
@@ -89,6 +89,18 @@ SSH の場合は鍵認証のみで、ESL はポートフォワードで届きま
 シナリオの `plugins:` にサービス固有の処理を足します。同梱は `log_patterns`（ログの集計）、`status_command`（status 出力の抽出）、
 `conf_override`（設定の一時変更と復元）、`ws_hook`（通話ごとの WebSocket 連携）、`webhook`（HTTP 通知）。
 独自クラスは `module: pkg.mod:Class` で読み込みます。書き方は `docs/plugins.md`、設定例は `examples/plugins-example.yaml`。
+
+## トランスポート（UDP / TCP / TLS）
+
+```yaml
+pbx:
+  transport: tls          # udp | tcp | tls
+  sip_port: 5061
+  tls_verify: false       # 自己署名の検証用 PBX。本番は true と tls_ca
+```
+
+PBX プロファイルでは `sip_transport` / `sip_tls_port` / `tls_verify` / `tls_ca`。TLS では応答側の待ち受けに自己署名証明書を自動生成します（`~/.semishigure/tls/`。`pbx.tls_cert` / `tls_key` で差し替え）。
+検証用 FreeSWITCH / Asterisk は起動時に証明書を生成し、5061 で TLS を待ち受けます。RTP は UDP のままです（SRTP は未対応）。
 
 ## 通話ステップと記録表
 

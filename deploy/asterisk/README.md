@@ -48,3 +48,8 @@ API コマンドは AMI の `Command` アクション、使えないときは `a
 ## 段階 3 相当の SSH
 
 `SEMI_AST_SSH=1` と `SEMI_AST_SSH_PUBKEY` で sshd（2222、ユーザー `semi`、鍵認証のみ）が起動します。
+
+## TLS
+
+起動時に自己署名証明書を生成し、5061（`SEMI_FS_TLS_PORT` / `SEMI_AST_TLS_PORT`）で SIP over TLS を待ち受けます。証明書の検証はしません（検証用）。
+Semishigure 側はプロファイルの `sip_transport: tls` と `tls_verify: false`、または シナリオの `pbx.transport: tls` で接続します。TCP は UDP と同じポートです。

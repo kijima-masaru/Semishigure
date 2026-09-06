@@ -16,7 +16,7 @@ from typing import Protocol
 from semishigure.sip.dialog import Dialog
 from semishigure.sip.message import SipMessage, new_branch
 from semishigure.sip.transaction import ClientTransaction, ServerTransaction
-from semishigure.sip.transport import Addr, UdpTransport
+from semishigure.sip.transport import Addr, UdpTransport, make_transport
 
 log = logging.getLogger(__name__)
 
@@ -36,8 +36,9 @@ RequestHandler = Callable[[SipMessage, ServerTransaction, Addr], None]
 
 
 class SipEndpoint:
-    def __init__(self, local_ip: str, local_port: int, bind_ip: str = "0.0.0.0", trace: bool = False):
-        self.transport = UdpTransport(local_ip, local_port, bind_ip=bind_ip, trace=trace)
+    def __init__(self, local_ip: str, local_port: int, bind_ip: str = "0.0.0.0", trace: bool = False, scheme: str = "udp", tls_client=None, tls_server=None):
+        self.transport: UdpTransport = make_transport(scheme, local_ip, local_port, bind_ip=bind_ip, trace=trace, tls_client=tls_client, tls_server=tls_server)
+        self.scheme = scheme.lower()
         self._client_txns: dict[tuple[str, str], ClientTransaction] = {}
         self._server_txns: dict[tuple[str, str], ServerTransaction] = {}
         self._invite_server_txns: dict[tuple[str, int], ServerTransaction] = {}  # (call-id, cseq) -> pending 2xx
@@ -65,11 +66,16 @@ class SipEndpoint:
 
     # -- helpers for building requests ------------------------------------------
 
+    @property
+    def transport_name(self) -> str:
+        return self.transport.transport_name
+
     def contact_uri(self, user: str) -> str:
-        return f"sip:{user}@{self.local_ip}:{self.local_port}"
+        base = f"sip:{user}@{self.local_ip}:{self.local_port}"
+        return base if self.scheme == "udp" else f"{base};transport={self.scheme}"
 
     def via(self) -> str:
-        return f"SIP/2.0/UDP {self.local_ip}:{self.local_port};branch={new_branch()};rport"
+        return f"SIP/2.0/{self.transport_name} {self.local_ip}:{self.local_port};branch={new_branch()};rport"
 
     def decorate(self, req: SipMessage) -> None:
         if req.get("Max-Forwards") is None:
