@@ -90,6 +90,39 @@ class ProfileBody(BaseModel):
     profile: dict[str, Any]
 
 
+class SecretBody(BaseModel):
+    value: str
+
+
+class SecretCheck(BaseModel):
+    names: list[str]
+
+
+class GuideScenario(BaseModel):
+    """Inputs of the setup guide (docs: README「セットアップガイド」); the server writes the YAML."""
+
+    name: str
+    pbx_profile: str | None = None
+    host: str = "127.0.0.1"
+    sip_port: int = 5060
+    domain: str = ""
+    environment: str = "dev"
+    caller_user: str
+    caller_secret: str
+    destination: str
+    answerers: list[dict[str, Any]]  # [{user, secret, max_calls}]
+    caller_port: int = 5070
+    answerer_port: int = 5080
+    rtp_port_start: int = 20000
+    rtp_port_end: int = 20999
+    call_duration: float = 60
+    audio: str = "synth:60"
+    plugins: bool = True
+    monitor: bool = True
+    pbx_type: str = "freeswitch"
+    overwrite: bool = False
+
+
 class AppState:
     def __init__(self, scenario_dir: Path, store: RunStore | None):
         self.scenario_dir = scenario_dir
@@ -247,6 +280,79 @@ def create_app(scenario_dir: Path | str = "examples", store: RunStore | None = N
                 await adapter.close()
             except Exception:  # noqa: BLE001
                 pass
+
+    # -- secrets (names only ever leave the server; values go into the encrypted store) ----
+
+    @app.get("/api/secrets")
+    async def list_secrets() -> dict:
+        import os
+
+        env = sorted(k[len("SEMISHIGURE_SECRET_") :].lower() for k in os.environ if k.startswith("SEMISHIGURE_SECRET_"))
+        try:
+            names = state.secrets.names()
+        except SecretError as exc:
+            return {"store": [], "env": env, "error": str(exc), "file": str(state.secrets.file)}
+        return {"store": names, "env": env, "file": str(state.secrets.file)}
+
+    @app.post("/api/secrets/check")
+    async def check_secrets(body: SecretCheck) -> dict:
+        out = {}
+        for n in body.names:
+            try:
+                state.secrets.resolve(f"secret:{n}")
+                out[n] = True
+            except SecretError:
+                out[n] = False
+        return {"resolved": out, "ok": all(out.values())}
+
+    @app.post("/api/secrets/{name}")
+    async def set_secret(name: str, body: SecretBody) -> dict:
+        if not name or not all(ch.isalnum() or ch in "_-." for ch in name):
+            raise HTTPException(400, "bad secret name (letters, digits, _ - . only)")
+        if not body.value:
+            raise HTTPException(400, "empty value")
+        try:
+            state.secrets.set(name, body.value)
+        except SecretError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"stored": name, "file": str(state.secrets.file)}
+
+    @app.post("/api/guide/scenario")
+    async def guide_scenario(req: GuideScenario) -> dict:
+        name = req.name.strip()
+        if not name or "/" in name or "\\" in name:
+            raise HTTPException(400, "bad name")
+        p = state.scenario_dir / (name if name.endswith((".yaml", ".yml")) else f"{name}.yaml")
+        if p.exists() and not req.overwrite:
+            raise HTTPException(409, f"{p.name} exists")
+        exts = [{"user": str(a["user"]), "password_ref": f"secret:{a['secret']}", "max_calls": int(a.get("max_calls", 5))} for a in req.answerers if a.get("user")]
+        if not exts:
+            raise HTTPException(400, "at least one answerer extension is required")
+        data: dict[str, Any] = {
+            "name": name,
+            "description": f"setup guide: {req.caller_user} -> {req.destination} -> {', '.join(e['user'] for e in exts)}",
+            "pbx": {"host": req.host, "sip_port": req.sip_port, "domain": req.domain, "caller_port": req.caller_port, "answerer_port": req.answerer_port, "rtp_port_start": req.rtp_port_start, "rtp_port_end": req.rtp_port_end, "environment": req.environment},
+            "caller": {"auth_user": str(req.caller_user), "auth_password_ref": f"secret:{req.caller_secret}", "from_number": str(req.caller_user), "destination": str(req.destination), "audio": req.audio},
+            "answerer": {"extensions": exts, "audio": req.audio},
+            "load": {"target_concurrency": 1, "ramp_rate": "1/s", "call_duration": f"{int(req.call_duration)}s", "presets": {"A": {"steps": [5, 10, 20]}, "B": {"steps": [10, 20, 30]}}},
+        }
+        if req.pbx_profile:
+            data["pbx_profile"] = req.pbx_profile
+        if req.monitor:
+            data["monitor"] = {"interval": "2s", "commands": [{"name": "channels_count", "api": "show channels count"} if req.pbx_type == "freeswitch" else {"name": "channels_count", "api": "core show channels count", "parse": "number"}]}
+        if req.plugins:
+            if req.pbx_type == "asterisk":
+                data["plugins"] = {"log_patterns": {"counters": [{"name": "warnings", "regex": "WARNING\\["}, {"name": "errors", "regex": "ERROR\\["}]}}
+            else:
+                data["plugins"] = {"log_patterns": {"key": "^([0-9a-f-]{36})", "counters": [{"name": "warnings", "regex": "\\[WARNING\\]"}], "timers": [{"name": "channel_lifetime", "start": f"New Channel sofia/internal/{req.caller_user}", "end": f"Close Channel sofia/internal/{req.caller_user}"}]}}
+        try:
+            scenario_from_dict(data, base_dir=state.scenario_dir)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, f"invalid scenario: {exc}") from exc
+        head = "# Semishigure のセットアップガイドが作成したシナリオ。パスワードは secret: 参照（値は暗号化ストアか環境変数）。\n"
+        text = head + yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+        p.write_text(text, encoding="utf-8")
+        return {"file": p.name, "yaml": text}
 
     # -- run control ------------------------------------------------------------
 

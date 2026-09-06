@@ -100,3 +100,33 @@ def test_decimate_samples_keeps_peaks():
     assert 90 <= len(load) <= 110 and len(out) <= 220
     assert max(p["rtp_late_max_ms"] for p in load) == 10.0
     assert decimate_samples(pts[:50], 100) == pts[:50]
+
+
+def test_secrets_and_guide_scenario(tmp_path: Path, monkeypatch):
+    scen_dir = tmp_path / "scenarios"
+    scen_dir.mkdir()
+    monkeypatch.setenv("SEMISHIGURE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("SEMISHIGURE_SECRET_FROM_ENV", "x")
+    app = create_app(scenario_dir=scen_dir, store=None)
+    app.state.semishigure.profiles = ProfileStore(tmp_path / "profiles.yaml")
+    with TestClient(app) as c:
+        assert c.post("/api/secrets/bad name", json={"value": "v"}).status_code == 400
+        assert c.post("/api/secrets/ext", json={"value": ""}).status_code == 400
+        assert c.post("/api/secrets/ext", json={"value": "pw"}).json()["stored"] == "ext"
+        lst = c.get("/api/secrets").json()
+        assert lst["store"] == ["ext"] and "from_env" in lst["env"]
+        chk = c.post("/api/secrets/check", json={"names": ["ext", "from_env", "missing"]}).json()
+        assert chk["resolved"] == {"ext": True, "from_env": True, "missing": False} and chk["ok"] is False
+        # the values never come back
+        assert "pw" not in c.get("/api/secrets").text
+        body = {"name": "guided", "pbx_profile": "p", "host": "10.0.0.1", "domain": "d.test", "caller_user": "9100", "caller_secret": "ext", "destination": "8001", "answerers": [{"user": "9001", "secret": "ext", "max_calls": 5}, {"user": "9002", "secret": "ext"}], "call_duration": 45, "pbx_type": "freeswitch"}
+        r = c.post("/api/guide/scenario", json=body)
+        assert r.status_code == 200, r.text
+        assert r.json()["file"] == "guided.yaml" and "secret:ext" in r.json()["yaml"] and "pw" not in r.json()["yaml"]
+        parsed = c.get("/api/scenarios/guided").json()["parsed"]
+        assert parsed["caller"]["destination"] == "8001" and parsed["load"]["call_duration"] == "45s" and parsed["monitor"]["commands"][0]["api"] == "show channels count"
+        assert [e["user"] for e in parsed["answerer"]["extensions"]] == ["9001", "9002"]
+        assert c.post("/api/guide/scenario", json=body).status_code == 409
+        assert c.post("/api/guide/scenario", json={**body, "overwrite": True, "pbx_type": "asterisk"}).status_code == 200
+        assert c.get("/api/scenarios/guided").json()["parsed"]["monitor"]["commands"][0]["api"] == "core show channels count"
+        assert c.post("/api/guide/scenario", json={**body, "name": "x", "answerers": []}).status_code == 400

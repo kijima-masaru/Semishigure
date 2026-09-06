@@ -25,7 +25,7 @@
   const ago = (t) => { if (!t) return "–"; const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 60 ? s + " 秒前" : mmss(s) + " 前"; };
   const LEVEL_RE = /\[(EMERG|ALERT|CRIT|ERR|WARNING|NOTICE|INFO|DEBUG)\]|(ERROR|WARNING|NOTICE|VERBOSE|DEBUG)\[\d+\]/;
   const levelOf = (line) => { const m = LEVEL_RE.exec(line || ""); const l = m ? (m[1] || m[2]) : ""; return l === "ERROR" ? "ERR" : l; };
-  const TABS = [{ id: "run", label: "実行" }, { id: "scenarios", label: "シナリオ" }, { id: "profiles", label: "PBX" }, { id: "results", label: "結果" }];
+  const TABS = [{ id: "guide", label: "ガイド" }, { id: "run", label: "実行" }, { id: "scenarios", label: "シナリオ" }, { id: "profiles", label: "PBX" }, { id: "results", label: "結果" }];
   const NUMERIC_FIELDS = ["sip_port", "sip_tls_port", "ssh_port", "esl_port", "rtp_port_start", "rtp_port_end", "max_concurrency"];
   const PROFILE_GROUPS = [
     { title: "基本", fields: ["name", "type", "host", "domain", "environment", "max_concurrency", "notes"] },
@@ -49,6 +49,25 @@
     extra: "JSON。Asterisk の ami_user、asterisk_conf など",
   };
 
+  const GUIDE_STEPS = ["PBX に接続", "内線と番号", "シナリオ", "事前チェック", "負荷検証"];
+  const GUIDE_DEFAULT = () => ({
+    step: 0, done: [false, false, false, false, false], plan: "small", confirm_prod: false,
+    pbx: { name: "my-pbx", type: "freeswitch", host: "", sip_port: 5060, domain: "", environment: "dev", executor: "local", ssh_host: "", ssh_port: 22, ssh_user: "", ssh_key: "", monitor: true, esl_host: "127.0.0.1", esl_port: 8021, esl_secret: "esl", ami_user: "semishigure", fs_cli: "fs_cli", log_path: "/var/log/freeswitch/freeswitch.log", process_name: "freeswitch" },
+    ext: { caller: "9100", caller_secret: "ext", destination: "8001", answerers: "9001,9002,9003,9004", max_calls: 5, shared_secret: true, answerer_secret: "ext", caller_port: 5070, answerer_port: 5080, rtp_start: 20000, rtp_end: 20999 },
+    scen: { name: "my-loadtest", call_duration: 60, audio: "synth:60", plugins: true, overwrite: false },
+  });
+  const PRECHECK_HINTS = [
+    [/^REGISTER/, "内線が PBX に存在するか、パスワード（secret の名前と値）、SIP ドメイン、応答側 SIP ポートがファイアウォールで通るか"],
+    [/^発信/, "発信側の内線とパスワード、発信先の番号がダイアルプラン（着信グループ）にあるか。401/403 は認証、404 は番号、480/486 は宛先が鳴らない"],
+    [/RTP 送出/, "このマシンの RTP ポート範囲が使えるか（他のプロセスと重複していないか）"],
+    [/RTP 受信|応答側/, "PBX からこのマシンへ RTP が届くか（NAT、ファイアウォール、PBX の rtp-ip / external_rtp_ip）。応答側の通話が無い場合は着信グループの宛先に応答側の内線が入っているか"],
+    [/^BYE/, "PBX がこのマシンからの BYE を受け取れるか（Contact / Via のアドレス）"],
+    [/PBX 監視/, "ESL / AMI のアドレスとポート、パスワード（secret）、CLI コマンドのパス、ログファイルの読み取り権限"],
+    [/PBX イベント/, "ESL の event 権限、AMI の read 権限（call）。FusionPBX の ESL は 127.0.0.1 待ち受けなので別ホストからは SSH 経由"],
+    [/プラグイン/, "ログファイルのパスと権限。log_patterns の正規表現"],
+    [/起動/, "秘密情報が解決できない（名前の綴り、環境変数）か、SIP ポートが使用中"],
+  ];
+
   createApp({
     components: { ico: Ico },
     setup() {
@@ -71,6 +90,8 @@
       const reducedMotion = ref(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
       const updatePaused = ref(false), updateInterval = ref(reducedMotion.value ? 2 : 0.5);
       const dialog = ref(null);
+      const guide = ref(GUIDE_DEFAULT()), guideSecrets = ref({ esl: "", caller: "", answerers: "" }), guideResult = ref([null, null, null, null, null]), secretsInfo = ref({ store: [], env: [], file: "" }), secretsResolved = ref({});
+      try { const saved = JSON.parse(localStorage.getItem("semishigure.guide") || "null"); if (saved && saved.pbx) { const d = GUIDE_DEFAULT(); guide.value = { ...d, ...saved, pbx: { ...d.pbx, ...saved.pbx }, ext: { ...d.ext, ...saved.ext }, scen: { ...d.scen, ...saved.scen } }; } } catch (e) { /* ignore */ }
       const chartEl = ref(null), mchartEl = ref(null), dchartEl = ref(null), cchartEl = ref(null), dlgEl = ref(null), dlgCancel = ref(null), yamlEl = ref(null), prodBox = ref(null), detailEl = ref(null);
       let ws = null, rateSynced = false, chart = null, mchart = null, dchart = null, cchart = null, lastApplied = 0, pendingSnap = null, dialogResolve = null, targetTimer = null, toastTimer = null;
 
@@ -85,7 +106,7 @@
 
       // ---- navigation (hash) ----
       function setTab(t) { tab.value = t; const h = t === "results" && detail.value ? "#results/" + detail.value.id : "#" + t; if (location.hash !== h) history.replaceState(null, "", h); }
-      function readHash() { const m = /^#(run|scenarios|profiles|results)(?:\/(\d+))?/.exec(location.hash || ""); if (!m) return; tab.value = m[1]; if (m[2]) openRun(Number(m[2]), true); }
+      function readHash() { const m = /^#(guide|run|scenarios|profiles|results)(?:\/(\d+))?/.exec(location.hash || ""); if (!m) return; tab.value = m[1]; if (m[2]) openRun(Number(m[2]), true); }
       window.addEventListener("hashchange", readHash);
 
       // ---- helpers ----
@@ -232,13 +253,13 @@
       // ---- run control ----
       function startBody() { const f = form.value; const body = { scenario: f.scenario, pbx_profile: f.pbx_profile || null, monitor: f.monitor, ramp_rate: f.ramp_rate, call_duration: f.call_duration, max_concurrency: f.max_concurrency, confirm_prod: f.confirm_prod, ignore_register_failure: f.ignore_register_failure, name: f.name || "" }; if (f.mode === "schedule") { body.schedule = f.schedule; body.target = 0; } else if (f.mode === "preset") { body.preset = f.preset || presets.value[0]; body.target = 0; } else body.target = f.target; return body; }
       async function startRun() {
-        fieldErrors.value = {}; if (!form.value.scenario) { fieldErrors.value.scenario = "シナリオを選んでください"; return; }
-        if (form.value.mode === "schedule" && !/^\s*\d+(\s*:\s*\d+(\.\d+)?)?(\s*,\s*\d+(\s*:\s*\d+(\.\d+)?)?)*\s*$/.test(form.value.schedule || "")) { fieldErrors.value.schedule = "N:秒 をカンマ区切りで書いてください（例 5:180,10:180）"; return; }
-        if (activeEnv.value === "prod" && !form.value.confirm_prod) { fieldErrors.value.confirm_prod = "本番環境に負荷を掛けることを確認するチェックを入れてください"; nextTick(() => prodBox.value && prodBox.value.focus()); return; }
-        if (activeEnv.value === "prod") { const ok = await confirmDialog({ title: "本番環境に負荷を掛けます", prod: true, lines: [`${resolved.value.host}（${resolved.value.domain}）に ${modeText.value}、上限 ${effectiveCap.value} で発信します。`, "監視している PBX の通話に影響する可能性があります。"], confirmLabel: "開始する", danger: true }); if (!ok) return; }
+        fieldErrors.value = {}; if (!form.value.scenario) { fieldErrors.value.scenario = "シナリオを選んでください"; return false; }
+        if (form.value.mode === "schedule" && !/^\s*\d+(\s*:\s*\d+(\.\d+)?)?(\s*,\s*\d+(\s*:\s*\d+(\.\d+)?)?)*\s*$/.test(form.value.schedule || "")) { fieldErrors.value.schedule = "N:秒 をカンマ区切りで書いてください（例 5:180,10:180）"; return false; }
+        if (activeEnv.value === "prod" && !form.value.confirm_prod) { fieldErrors.value.confirm_prod = "本番環境に負荷を掛けることを確認するチェックを入れてください"; nextTick(() => prodBox.value && prodBox.value.focus()); return false; }
+        if (activeEnv.value === "prod") { const ok = await confirmDialog({ title: "本番環境に負荷を掛けます", prod: true, lines: [`${resolved.value.host}（${resolved.value.domain}）に ${modeText.value}、上限 ${effectiveCap.value} で発信します。`, "監視している PBX の通話に影響する可能性があります。"], confirmLabel: "開始する", danger: true }); if (!ok) return false; }
         busy.value = "start";
-        try { await api("/api/run/start", startBody(), { quiet: true }); rateSynced = false; showToast("ランを開始しました"); }
-        catch (e) { if (e.status === 428) { fieldErrors.value.confirm_prod = japanese(e); nextTick(() => prodBox.value && prodBox.value.focus()); } else if (/invalid schedule/.test(e.message)) fieldErrors.value.schedule = e.message; else showAlert(japanese(e)); }
+        try { await api("/api/run/start", startBody(), { quiet: true }); rateSynced = false; showToast("ランを開始しました"); return true; }
+        catch (e) { if (e.status === 428) { fieldErrors.value.confirm_prod = japanese(e); nextTick(() => prodBox.value && prodBox.value.focus()); } else if (/invalid schedule/.test(e.message)) fieldErrors.value.schedule = e.message; else showAlert(japanese(e)); return false; }
         finally { busy.value = ""; }
       }
       async function restartSame() { run.value = null; await nextTick(); startRun(); }
@@ -304,6 +325,90 @@
         dchart.setData(SemiCharts.runData(load, monS), "このランには samples がありません");
       }
 
+      // ---- setup guide ----
+      const guideSteps = GUIDE_STEPS;
+      const guideMaxStep = computed(() => { const d = guide.value.done; let m = 0; for (let i = 0; i < 4; i++) { if (d[i]) m = i + 1; else break; } return m; });
+      const guideScenarioExists = computed(() => scenarios.value.some((s) => s.file === guide.value.scen.name + ".yaml"));
+      const answererList = computed(() => String(guide.value.ext.answerers || "").split(/[\s,、]+/).map((x) => x.trim()).filter(Boolean));
+      const answererSecretNames = computed(() => (guide.value.ext.shared_secret ? [guide.value.ext.caller_secret] : answererList.value.map((u) => guide.value.ext.answerer_secret + "_" + u)));
+      function guideSave() { try { localStorage.setItem("semishigure.guide", JSON.stringify(guide.value)); } catch (e) { /* ignore */ } }
+      watch(guide, guideSave, { deep: true });
+      function guideReset() { guide.value = GUIDE_DEFAULT(); guideResult.value = [null, null, null, null, null]; guideSecrets.value = { esl: "", caller: "", answerers: "" }; guideSave(); }
+      function guideTypeDefaults() { const p = guide.value.pbx; if (p.type === "asterisk") { p.esl_port = 5038; p.fs_cli = "asterisk"; p.log_path = "/var/log/asterisk/full"; p.process_name = "asterisk"; } else { p.esl_port = 8021; p.fs_cli = "fs_cli"; p.log_path = "/var/log/freeswitch/freeswitch.log"; p.process_name = "freeswitch"; } }
+      async function loadSecrets() { secretsInfo.value = await api("/api/secrets", undefined, { quiet: true }).catch(() => ({ store: [], env: [], file: "" })); }
+      const secretStatus = (name) => { if (!name) return "名前を入れてください"; if (secretsResolved.value[name] === true || (secretsInfo.value.env || []).includes(name.toLowerCase()) || (secretsInfo.value.store || []).includes(name)) return `secret:${name} は保存済みです（値を入れると上書き）`; return `secret:${name} はまだありません。値を入力すると暗号化ストアに保存します`; };
+      async function saveSecretIf(name, value) { if (!name) throw new Error("パスワードの名前を入れてください"); if (value) await api("/api/secrets/" + encodeURIComponent(name), { value }, { quiet: true }); }
+      function guideProfileBody() {
+        const p = guide.value.pbx;
+        const body = { type: p.type, host: p.host, sip_port: Number(p.sip_port) || 5060, domain: p.domain, environment: p.environment, executor: p.executor, esl_host: p.esl_host, esl_port: Number(p.esl_port) || (p.type === "asterisk" ? 5038 : 8021), esl_password_ref: p.monitor ? "secret:" + p.esl_secret : "", fs_cli: p.fs_cli, log_path: p.log_path, process_name: p.process_name, extra: p.type === "asterisk" ? { ami_user: p.ami_user } : {} };
+        if (p.executor === "ssh") Object.assign(body, { ssh_host: p.ssh_host, ssh_port: Number(p.ssh_port) || 22, ssh_user: p.ssh_user, ssh_key: p.ssh_key });
+        return body;
+      }
+      async function guideStep1() {
+        const p = guide.value.pbx; guideResult.value[0] = null;
+        if (!p.name.trim() || !p.host.trim()) { guideResult.value[0] = { ok: false, text: "プロファイル名と SIP アドレスを入れてください" }; return; }
+        busy.value = "guide";
+        try {
+          if (p.monitor) await saveSecretIf(p.esl_secret, guideSecrets.value.esl);
+          await api("/api/pbx/profiles/" + encodeURIComponent(p.name.trim()), { profile: guideProfileBody() }, { method: "PUT", quiet: true });
+          await loadProfiles(); await loadSecrets(); guideSecrets.value.esl = "";
+          if (!p.monitor) { guide.value.done[0] = true; guideResult.value[0] = { ok: true, text: `プロファイル ${p.name} を保存しました（監視なし）。` }; return; }
+          const t = await api("/api/pbx/profiles/" + encodeURIComponent(p.name.trim()) + "/test", {}, { quiet: true });
+          if (t.ok) { guide.value.done[0] = true; guideResult.value[0] = { ok: true, text: `接続できました: ${t.status.version || ""} · max-sessions ${t.status.sessions_max ?? "-"} · channels ${t.channels} · pid ${t.process.pid} · 登録 ${t.registrations.length} 件（${t.connect_ms} ms）` }; }
+          else { guide.value.done[0] = false; guideResult.value[0] = { ok: false, text: "接続できません: " + t.error, tip: /auth|password|denied|login/i.test(t.error) ? "パスワードの名前と値を確認してください（FusionPBX の既定は ClueCon、Asterisk は manager.conf の secret）。" : /refused|timed? ?out|unreachable|No route/i.test(t.error) ? "アドレスとポート、ファイアウォールを確認してください。ESL が 127.0.0.1 でしか待ち受けていない場合は SSH 経由にします。" : /ssh|key|known_hosts/i.test(t.error) ? "SSH のユーザ・鍵・known_hosts を確認してください。" : "CLI コマンドのパスとログファイルの権限も確認してください。" }; }
+        } catch (e) { guideResult.value[0] = { ok: false, text: japanese(e) }; }
+        finally { busy.value = ""; }
+      }
+      async function guideSkipMonitor() { guide.value.pbx.monitor = false; await guideStep1(); }
+      async function guideStep2() {
+        const x = guide.value.ext; guideResult.value[1] = null;
+        if (!x.caller.trim() || !x.destination.trim() || !answererList.value.length) { guideResult.value[1] = { ok: false, text: "発信側の内線、発信先、応答側の内線を入れてください" }; return; }
+        busy.value = "guide";
+        try {
+          await saveSecretIf(x.caller_secret, guideSecrets.value.caller);
+          if (!x.shared_secret) { const vals = String(guideSecrets.value.answerers || "").split(",").map((v) => v.trim()); for (let i = 0; i < answererList.value.length; i++) await saveSecretIf(answererSecretNames.value[i], vals[i] || ""); }
+          const names = [...new Set([x.caller_secret].concat(answererSecretNames.value))];
+          const r = await api("/api/secrets/check", { names }, { quiet: true }); secretsResolved.value = r.resolved; await loadSecrets(); guideSecrets.value.caller = ""; guideSecrets.value.answerers = "";
+          const missing = names.filter((n) => !r.resolved[n]);
+          if (missing.length) { guide.value.done[1] = false; guideResult.value[1] = { ok: false, text: "まだ値が無いパスワード: " + missing.join(", "), tip: "値を入力して保存するか、環境変数 SEMISHIGURE_SECRET_名前 でサーバに渡してください。" }; }
+          else { guide.value.done[1] = true; guideResult.value[1] = { ok: true, text: `パスワードを確認しました: ${names.join(", ")}。発信 ${x.caller} → ${x.destination}、応答 ${answererList.value.join(", ")}（各 ${x.max_calls} 通話）` }; }
+        } catch (e) { guideResult.value[1] = { ok: false, text: japanese(e) }; }
+        finally { busy.value = ""; }
+      }
+      async function guideStep3() {
+        const g = guide.value; guideResult.value[2] = null; busy.value = "guide";
+        try {
+          const body = { name: g.scen.name.trim(), pbx_profile: g.pbx.name.trim(), host: g.pbx.host, sip_port: Number(g.pbx.sip_port) || 5060, domain: g.pbx.domain, environment: g.pbx.environment, caller_user: g.ext.caller.trim(), caller_secret: g.ext.caller_secret, destination: g.ext.destination.trim(), answerers: answererList.value.map((u, i) => ({ user: u, secret: answererSecretNames.value[i] || g.ext.caller_secret, max_calls: Number(g.ext.max_calls) || 5 })), caller_port: Number(g.ext.caller_port) || 5070, answerer_port: Number(g.ext.answerer_port) || 5080, rtp_port_start: Number(g.ext.rtp_start) || 20000, rtp_port_end: Number(g.ext.rtp_end) || 20999, call_duration: Number(g.scen.call_duration) || 60, audio: g.scen.audio === "wav" ? "synth:60" : g.scen.audio, plugins: g.scen.plugins, monitor: g.pbx.monitor, pbx_type: g.pbx.type, overwrite: g.scen.overwrite };
+          const r = await api("/api/guide/scenario", body, { quiet: true });
+          await loadScenarios(); form.value.scenario = r.file; form.value.pbx_profile = ""; editor.value.file = r.file; await loadScenarioText();
+          guide.value.done[2] = true; guideResult.value[2] = { ok: true, text: `${r.file} を作成しました${g.scen.audio === "wav" ? "（audio: は合成音声にしてあります。シナリオタブで WAV のパスに書き換えてください）" : ""}。`, yaml: r.yaml };
+        } catch (e) { guideResult.value[2] = { ok: false, text: japanese(e), tip: e.status === 409 ? "「同名のシナリオを上書きする」にチェックを入れるか、別の名前にしてください。" : "" }; }
+        finally { busy.value = ""; }
+      }
+      const precheckHint = (name) => { for (const [re, hint] of PRECHECK_HINTS) if (re.test(name)) return hint; return ""; };
+      async function guideStep4() {
+        guideResult.value[3] = null; busy.value = "guide"; precheckState.value = { running: true, started_at: Date.now() / 1000, hold_seconds: 6, elapsed_s: 0, result: null };
+        try {
+          const res = await api("/api/precheck", { scenario: guide.value.scen.name.trim() + ".yaml", pbx_profile: null, monitor: guide.value.pbx.monitor }, { quiet: true });
+          precheckState.value = { running: false, result: res };
+          const sip = res.items.filter((i) => /^(REGISTER|発信|RTP|応答側|BYE)/.test(i.name)); const sipOk = sip.length > 0 && sip.every((i) => i.ok);
+          guide.value.done[3] = res.ok; const ng = res.items.filter((i) => !i.ok).length;
+          guideResult.value[3] = { ok: res.ok, sipOk, items: res.items, text: res.ok ? `合格です（${res.elapsed_s} 秒）。負荷検証に進めます。` : sipOk ? `SIP の項目は合格、監視の項目が NG ${ng} 件です（${res.elapsed_s} 秒）。` : `NG ${ng} 件（${res.elapsed_s} 秒）。右の確認点を見て直し、もう一度実行してください。` };
+        } catch (e) { precheckState.value = { running: false, result: null }; guideResult.value[3] = { ok: false, sipOk: false, text: japanese(e) }; }
+        finally { busy.value = ""; }
+      }
+      async function guideStep5() {
+        const g = guide.value; guideResult.value[4] = null;
+        form.value.scenario = g.scen.name.trim() + ".yaml"; form.value.pbx_profile = ""; form.value.monitor = g.pbx.monitor; form.value.call_duration = Number(g.scen.call_duration) || 60; form.value.ramp_rate = 1; form.value.confirm_prod = g.confirm_prod; form.value.name = "";
+        if (g.plan === "small") { form.value.mode = "fixed"; form.value.target = 3; form.value.name = "guide-first-run"; }
+        else if (g.plan === "steps") { form.value.mode = "schedule"; form.value.schedule = `5:${form.value.call_duration},10:${form.value.call_duration},20:${form.value.call_duration}`; form.value.name = "guide-steps"; }
+        if (g.plan === "manual") { guide.value.done[4] = true; guideResult.value[4] = { ok: true, text: "実行タブにシナリオを設定しました。" }; setTab("run"); return; }
+        if (g.pbx.environment === "prod" && !g.confirm_prod) { guideResult.value[4] = { ok: false, text: "本番環境に負荷を掛けることを確認するチェックを入れてください" }; return; }
+        busy.value = "guide";
+        try { await nextTick(); const ok = await startRun(); if (ok) { guide.value.done[4] = true; guideResult.value[4] = { ok: true, text: "ランを開始しました。実行タブで状態バーとチャートを見てください。" }; setTab("run"); } else guideResult.value[4] = { ok: false, text: alert.value ? alert.value.text : (fieldErrors.value.confirm_prod || fieldErrors.value.schedule || fieldErrors.value.scenario || "開始できませんでした") }; }
+        finally { busy.value = ""; }
+      }
+
       // ---- live feed ----
       function applySnapshot(s) {
         const wasActive = runActive.value;
@@ -337,7 +442,7 @@
       watch(activeEnv, (e) => { if (e === "prod") form.value.max_concurrency = Math.min(form.value.max_concurrency, 20); });
       watch(tab, (t) => { if (t === "results") nextTick(() => { if (dchart) dchart.resize(); if (cchart) cchart.resize(); }); if (t === "run") nextTick(() => { if (chart) chart.resize(); if (mchart) mchart.resize(); }); });
 
-      onMounted(async () => { applyTheme(); await loadScenarios(); await loadProfiles(); await loadRuns(); readHash(); connect(); });
+      onMounted(async () => { applyTheme(); await loadScenarios(); await loadProfiles(); await loadRuns(); await loadSecrets(); readHash(); if (!location.hash && !profiles.value.length) setTab("guide"); connect(); });
 
       return {
         tabs: TABS, tab, setTab, connected, lastUpdate, run, precheckRunning, precheckState, precheckProgress, precheckResult, precheckNg, mmss, hhmmss, theme, themeLabel, cycleTheme,
@@ -347,6 +452,7 @@
         seriesTruncated, chartEl, chartSummary, updateInterval, updatePaused, reducedMotion, callsFilter, callsView, sortState, callsSort, sortCalls, stateLabel, processLabel, mchartEl, customMetrics, logWarnOnly, logView, levelOf, flatten,
         editor, loadScenarioText, createScenario, deleteScenario, yamlEl, saveScenario, pform, loadProfileForm, deleteProfile, profileGroups, numericFields: NUMERIC_FIELDS, profileHelp: PROFILE_HELP, saveProfile, profilesPath,
         runs, runsQuery, selectedRuns, compareRuns, runsView, runsSort, sortRuns, detail, compare, cchartEl, detailEl, stepRun, hasRun, closeDetail, dchartEl, detailSummary, detailRows, dlgEl, dialog, dialogAnswer, dlgCancel,
+        guide, guideSteps, guideSecrets, guideResult, guideMaxStep, guideScenarioExists, answererSecretNames, secretsInfo, secretsResolved, secretStatus, guideSave, guideReset, guideTypeDefaults, guideStep1, guideSkipMonitor, guideStep2, guideStep3, guideStep4, guideStep5, precheckHint,
       };
     },
   }).mount("#app");
