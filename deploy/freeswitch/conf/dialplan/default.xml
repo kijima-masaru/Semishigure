@@ -1,0 +1,49 @@
+<include>
+  <context name="default">
+
+    <!-- Ring group entry number (design 9.1). Call limit is enforced with mod_hash;
+         the 21st concurrent call is rejected with 486 Busy Here. -->
+    <extension name="ring_group">
+      <condition field="destination_number" expression="^$${ring_group_number}$">
+        <action application="limit" data="hash $${domain} ringgroup-$${ring_group_number} $${ring_group_limit} !USER_BUSY"/>
+        <action application="set" data="ring_group_name=$${ring_group_number}"/>
+        <!-- parity with FusionPBX ring-group dialplan used by the Flatline test (STEP 3-5) -->
+        <action application="set" data="sip_h_X-LANG-DETECT=true"/>
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="continue_on_fail=false"/>
+        <action application="set" data="ringback=$${ring_tone}"/>
+        <action application="set" data="ignore_early_media=true"/>
+        <action application="bridge" data="$${ring_group_dial_string}"/>
+      </condition>
+    </extension>
+
+    <!-- Direct extension-to-extension call (handy for one-leg tests). -->
+    <extension name="local_extension">
+      <condition field="destination_number" expression="^(9\d{3})$">
+        <action application="set" data="call_timeout=30"/>
+        <action application="set" data="hangup_after_bridge=true"/>
+        <action application="set" data="ringback=$${ring_tone}"/>
+        <action application="bridge" data="user/$1@$${domain}"/>
+      </condition>
+    </extension>
+
+    <!-- Echo test: PBX answers and echoes RTP back (tests the UAC alone). -->
+    <extension name="echo">
+      <condition field="destination_number" expression="^9196$">
+        <action application="answer"/>
+        <action application="echo"/>
+      </condition>
+    </extension>
+
+    <!-- Tone test: PBX answers and plays a 1 kHz tone for 60 s. -->
+    <extension name="tone">
+      <condition field="destination_number" expression="^9197$">
+        <action application="answer"/>
+        <action application="playback" data="tone_stream://%(60000,0,1000)"/>
+        <action application="hangup"/>
+      </condition>
+    </extension>
+
+  </context>
+</include>

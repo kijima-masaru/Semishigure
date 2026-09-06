@@ -1,0 +1,15 @@
+<configuration name="switch.conf" description="Core Configuration">
+  <settings>
+    <param name="colorize-console" value="false"/>
+    <param name="dialplan-timestamps" value="false"/>
+    <param name="max-db-handles" value="50"/>
+    <param name="db-handle-timeout" value="10"/>
+    <param name="max-sessions" value="$${max_sessions}"/>
+    <param name="sessions-per-second" value="$${sessions_per_second}"/>
+    <param name="loglevel" value="info"/>
+    <param name="rtp-start-port" value="$${rtp_start_port}"/>
+    <param name="rtp-end-port" value="$${rtp_end_port}"/>
+    <param name="dump-cores" value="no"/>
+    <param name="core-db-name" value="core"/>
+  </settings>
+</configuration>

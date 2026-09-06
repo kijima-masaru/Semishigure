@@ -1,0 +1,29 @@
+# Semishigure development PBX.
+#   docker compose up -d --build
+# Host networking is used so the whole RTP range is reachable without
+# publishing thousands of ports (works in WSL2 Docker and Docker Desktop >= 4.34
+# with "Enable host networking"). See README.md for the port-mapping variant.
+services:
+  freeswitch:
+    build: .
+    image: semishigure-fs:1.10.12
+    container_name: semishigure-fs
+    network_mode: host
+    environment:
+      SEMI_FS_DOMAIN: pbx.semishigure.test
+      # SEMI_FS_SIP_IP: 0.0.0.0        # default: primary interface of the host/WSL2 VM
+      SEMI_FS_SIP_PORT: "5060"
+      SEMI_FS_RTP_START: "16384"
+      SEMI_FS_RTP_END: "32768"
+      SEMI_FS_MAX_SESSIONS: "100"
+      SEMI_FS_SPS: "30"
+      SEMI_FS_RING_GROUP: "8001"
+      SEMI_FS_RING_GROUP_LIMIT: "20"
+      SEMI_FS_RING_SEP: ","           # ',' simultaneous ring, '|' sequential
+      SEMI_FS_EXT_PASSWORD: ${SEMI_FS_EXT_PASSWORD:-semishigure-dev}
+      SEMI_FS_ESL_PASSWORD: ${SEMI_FS_ESL_PASSWORD:-ClueCon}
+      SEMI_FS_SSH: "0"                # "1" to start sshd on 2222 (stage 3)
+      # SEMI_FS_SSH_PUBKEY: "ssh-ed25519 AAAA... you@pc"
+    volumes:
+      - ./log:/var/log/freeswitch
+    restart: unless-stopped

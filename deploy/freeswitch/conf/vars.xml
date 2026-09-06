@@ -1,0 +1,34 @@
+<include>
+  <!-- Every value can be overridden with an environment variable (SEMI_FS_*).
+       Defaults are for a throw-away development PBX only. -->
+
+  <!-- SIP domain used for registration / authentication (a name, not an IP). -->
+  <X-PRE-PROCESS cmd="exec-set" data="domain=echo ${SEMI_FS_DOMAIN:-pbx.semishigure.test}"/>
+
+  <!-- Address the internal profile binds to. Default: primary interface. -->
+  <X-PRE-PROCESS cmd="exec-set" data="sip_ip=echo ${SEMI_FS_SIP_IP:-$${local_ip_v4}}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="ext_sip_ip=echo ${SEMI_FS_EXT_SIP_IP:-$${sip_ip}}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="ext_rtp_ip=echo ${SEMI_FS_EXT_RTP_IP:-$${sip_ip}}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="sip_port=echo ${SEMI_FS_SIP_PORT:-5060}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="rtp_start_port=echo ${SEMI_FS_RTP_START:-16384}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="rtp_end_port=echo ${SEMI_FS_RTP_END:-32768}"/>
+
+  <!-- Capacity (design 9.1: max-sessions >= 60, sessions-per-second >= 20). -->
+  <X-PRE-PROCESS cmd="exec-set" data="max_sessions=echo ${SEMI_FS_MAX_SESSIONS:-100}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="sessions_per_second=echo ${SEMI_FS_SPS:-30}"/>
+
+  <!-- Extension password (development default; override in real environments). -->
+  <X-PRE-PROCESS cmd="exec-set" data="ext_password=echo ${SEMI_FS_EXT_PASSWORD:-semishigure-dev}"/>
+  <!-- Event socket password. -->
+  <X-PRE-PROCESS cmd="exec-set" data="esl_password=echo ${SEMI_FS_ESL_PASSWORD:-ClueCon}"/>
+
+  <!-- Ring group 8001 -> answerer extensions 9001..9004.
+       Separator ',' = simultaneous ring, '|' = sequential (call_timeout each). -->
+  <X-PRE-PROCESS cmd="exec-set" data="ring_group_number=echo ${SEMI_FS_RING_GROUP:-8001}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="ring_group_limit=echo ${SEMI_FS_RING_GROUP_LIMIT:-20}"/>
+  <X-PRE-PROCESS cmd="exec-set" data="ring_sep=echo ${SEMI_FS_RING_SEP:-,}"/>
+  <X-PRE-PROCESS cmd="set" data="ring_group_dial_string=user/9001@$${domain}$${ring_sep}user/9002@$${domain}$${ring_sep}user/9003@$${domain}$${ring_sep}user/9004@$${domain}"/>
+
+  <X-PRE-PROCESS cmd="set" data="ring_tone=%(2000,4000,440.0,480.0)"/>
+  <X-PRE-PROCESS cmd="set" data="global_codec_prefs=PCMU,PCMA"/>
+</include>
