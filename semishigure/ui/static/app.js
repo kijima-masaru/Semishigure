@@ -82,7 +82,7 @@
       const tab = ref("run"), scenarioDir = ref("");
       const precheckState = ref(null);
       const detail = ref(null), detailRows = ref([]), compare = ref(null);
-      const editor = ref({ file: "", text: "", parsed: null, newName: "", msg: "", bad: false });
+      const editor = ref({ file: "", text: "", parsed: null, newName: "", newFrom: "template", creating: false, createMsg: "", msg: "", bad: false });
       const pform = ref({ name: "", values: {}, msg: "", bad: false });
       const rate = ref({ ramp_rate: 0.5, call_duration: 180 });
       const burstTarget = ref(10), scheduleText = ref("");
@@ -138,6 +138,26 @@
       function secretsOf(obj, out) { out = out || []; if (!obj || typeof obj !== "object") return out; for (const v of Object.values(obj)) { if (typeof v === "string" && v.startsWith("secret:")) { if (!out.includes(v.slice(7))) out.push(v.slice(7)); } else if (v && typeof v === "object") secretsOf(v, out); } return out; }
       const modeText = computed(() => form.value.mode === "schedule" ? "段階 " + (form.value.schedule || "(未入力)") : form.value.mode === "preset" ? "プリセット " + (form.value.preset || "") : "固定 N=" + form.value.target);
       const stale = computed(() => !connected.value && !!run.value && lastAt.value > 0);
+      // header: one line that says whether the PBX is reachable right now (or was, at the last test)
+      const pbxStatus = computed(() => {
+        if (!connected.value) return { cls: "bad", text: "アプリのサーバと切断しています（再接続中）", title: "" };
+        const r = run.value;
+        if (r && !r.finished) {
+          const regs = Object.values(r.registrations || {}), okc = regs.filter((x) => x.state === "registered").length;
+          const pending = regs.some((x) => x.state === "registering"), failed = regs.some((x) => x.state === "failed");
+          const m = r.monitor, mon = !m ? "監視なし" : m.error ? "監視エラー" : "監視 OK";
+          const sip = regs.length ? `SIP 登録 ${okc}/${regs.length}` : "SIP 登録なし";
+          const title = m && m.error ? String(m.error) : "";
+          // 接続しています…: still registering / 接続済み: everything up / 一部に問題: a registration failed or the monitor errors
+          if (pending && !failed && !(m && m.error)) return { cls: "warn", text: `PBX ${r.pbx.host} に接続しています… · ${sip}`, title };
+          const bad = (regs.length && okc < regs.length) || (m && m.error);
+          return { cls: bad ? "warn" : "on", text: `PBX ${r.pbx.host} ${bad ? "一部に問題" : "接続済み"} · ${sip} · ${mon}`, title };
+        }
+        if (precheckRunning.value) return { cls: "warn", text: "PBX に接続して事前チェック中", title: "" };
+        const pc = precheckState.value && precheckState.value.result;
+        if (pc) { const ng = (pc.items || []).filter((i) => !i.ok).length, at = precheckState.value.finished_at ? hhmmss(precheckState.value.finished_at) : ""; return { cls: pc.ok ? "on" : "warn", text: (pc.ok ? "PBX 接続テスト 合格" : `PBX 接続テスト NG ${ng} 件`) + (precheckState.value.scenario ? `（${precheckState.value.scenario}）` : "") + (at ? " " + at : ""), title: pc.ok ? "" : (pc.items || []).filter((i) => !i.ok).map((i) => i.name + ": " + (i.detail || "")).join("\n") }; }
+        return { cls: "", text: "PBX 未接続 — 実行タブで事前チェックかランを始めると接続します", title: "" };
+      });
       const staleFor = computed(() => { nowTick.value; return mmss((Date.now() - lastAt.value) / 1000); });
       const backoffText = computed(() => { const r = ctl.value.backoff_reason || ""; const m = /(\d+) consecutive (\d+)/.exec(r); const t = /target lowered to (\d+)/.exec(r); return m ? `PBX が ${m[2]} を ${m[1]} 回連続で返したため、目標を ${t ? t[1] : ctl.value.target} に下げました（自動減少）。応答内線の空きと PBX 側の制限を確認してください。` : "自動減少: " + r; });
       const extList = computed(() => (run.value ? Object.entries(run.value.registrations || {}).map(([user, r]) => ({ user, ...r })) : []));
@@ -216,11 +236,13 @@
         finally { busy.value = ""; }
       }
       async function createScenario() {
-        const name = editor.value.newName.trim(); if (!name) return; busy.value = "scenario";
-        try { const j = await api("/api/scenarios", { name, template: editor.value.file || null }, { quiet: true }); await loadScenarios(); editor.value.file = j.file; editor.value.newName = ""; await loadScenarioText(); showToast(j.file + " を作成しました"); }
-        catch (e) { editor.value.msg = japanese(e); editor.value.bad = true; }
+        const name = editor.value.newName.trim(); if (!name) return; busy.value = "scenario"; editor.value.createMsg = "";
+        const template = editor.value.newFrom === "copy" && editor.value.file ? editor.value.file : null;
+        try { const j = await api("/api/scenarios", { name, template }, { quiet: true }); await loadScenarios(); editor.value.file = j.file; editor.value.newName = ""; editor.value.creating = false; await loadScenarioText(); showToast(j.file + " を作成しました。内容を直して保存してください"); nextTick(() => yamlEl.value && yamlEl.value.focus()); }
+        catch (e) { editor.value.createMsg = /exists/.test(String(e.message || e)) ? "同じ名前のシナリオがあります。別の名前にしてください" : japanese(e); }
         finally { busy.value = ""; }
       }
+      function goGuideScenario() { guide.value.step = 3; setTab("guide"); }
       async function deleteScenario() {
         if (!editor.value.file) return;
         if (!(await confirmDialog({ title: "シナリオを削除しますか？", lines: [editor.value.file + " をディスクから削除します。元に戻せません。"], confirmLabel: "削除する", danger: true }))) return;
@@ -476,12 +498,12 @@
       onMounted(async () => { applyTheme(); await loadScenarios(); await loadProfiles(); await loadRuns(); await loadSecrets(); await loadProvision(); readHash(); if (!location.hash && !profiles.value.length) setTab("guide"); connect(); });
 
       return {
-        tabs: TABS, tab, setTab, connected, lastUpdate, run, precheckRunning, precheckState, precheckProgress, precheckResult, precheckNg, mmss, hhmmss, theme, themeLabel, cycleTheme,
+        tabs: TABS, tab, setTab, connected, lastUpdate, pbxStatus, run, precheckRunning, precheckState, precheckProgress, precheckResult, precheckNg, mmss, hhmmss, theme, themeLabel, cycleTheme,
         alert, stale, staleFor, ctl, backoffText, srSummary, toast, runActive, runFinished, form, fieldErrors, scenarios, scenarioDir, selectedScenario, profiles, presets, effectiveCap, activeEnv,
         startRun, runPrecheck, busy, restartSame, prodBox, setTargetDebounced, setTarget, adjust, pending, scheduleText, schedule, runPresets, preset, clearSchedule, rate, setRate, pause, resume, burstTarget, burst,
         extList, eventsDesc, kindOf, hangupAll, stopRun, resolved, testProfile, profileTest, modeText, recentRuns, openRun, ts, fmt, n, ago, nextStep, busyRejects, failText, answeredText, mon, monStale, monAge,
         seriesTruncated, chartEl, chartSummary, updateInterval, updatePaused, reducedMotion, callsFilter, callsView, sortState, callsSort, sortCalls, stateLabel, processLabel, mchartEl, customMetrics, logWarnOnly, logView, levelOf, flatten,
-        editor, loadScenarioText, createScenario, deleteScenario, yamlEl, saveScenario, pform, loadProfileForm, deleteProfile, profileGroups, numericFields: NUMERIC_FIELDS, profileHelp: PROFILE_HELP, saveProfile, profilesPath,
+        editor, loadScenarioText, createScenario, goGuideScenario, deleteScenario, yamlEl, saveScenario, pform, loadProfileForm, deleteProfile, profileGroups, numericFields: NUMERIC_FIELDS, profileHelp: PROFILE_HELP, saveProfile, profilesPath,
         runs, runsQuery, selectedRuns, compareRuns, runsView, runsSort, sortRuns, detail, compare, cchartEl, detailEl, stepRun, hasRun, closeDetail, dchartEl, detailSummary, detailRows, dlgEl, dialog, dialogAnswer, dlgCancel,
         guide, guideSteps, guideSecrets, guideResult, guideMaxStep, guideScenarioExists, answererSecretNames, secretsInfo, secretsResolved, secretStatus, guideSave, guideReset, guideTypeDefaults, guideStep1, guideSkipMonitor, guideStep2, guideStep3, guideStep4, guideStep5, precheckHint, provisioned, guideProvision, guideUnprovision,
       };

@@ -16,11 +16,10 @@
 <body>
 <div id="app" v-cloak>
   <header>
-    <h1>蝉時雨 Semishigure</h1>
-    <span class="st" role="status" aria-live="polite"><span class="dot" :class="{on: connected}" aria-hidden="true"></span>{{ connected ? 'サーバ接続中' : '切断中（再接続しています）' }}<span v-if="lastUpdate">· 最終更新 <b class="mono">{{ lastUpdate }}</b></span></span>
-    <span class="st" v-if="run"><span class="chip" :class="run.finished ? '' : 'ok'">{{ run.finished ? '終了' : '実行中' }}</span><b class="trunc mono" :title="run.name">{{ run.name }}</b><span class="hide-sm">{{ run.pbx.host }}</span><span v-if="run.pbx.environment==='prod'" class="chip prod" aria-label="本番環境">PROD</span><span v-else class="chip hide-sm">{{ run.pbx.environment }}</span><span class="mono" v-if="!run.finished">{{ mmss(run.stats.elapsed_s) }}</span></span>
+    <img class="logo" src="/static/favicon.png" width="22" height="22" alt="Semishigure">
+    <span class="st" role="status" aria-live="polite" :title="pbxStatus.title || null"><span class="dot" :class="pbxStatus.cls" aria-hidden="true"></span>{{ pbxStatus.text }}</span>
+    <span class="st" v-if="run"><span class="chip" :class="run.finished ? '' : 'ok'">{{ run.finished ? '終了' : '実行中' }}</span><b class="trunc mono" :title="run.name">{{ run.name }}</b><span v-if="run.pbx.environment==='prod'" class="chip prod" aria-label="本番環境">PROD</span><span v-else class="chip hide-sm">{{ run.pbx.environment }}</span><span class="mono" v-if="!run.finished">{{ mmss(run.stats.elapsed_s) }}</span></span>
     <span class="st" v-else-if="precheckRunning"><span class="chip warn">事前チェック中</span></span>
-    <span class="st" v-else>ランなし</span>
     <nav class="tabs" aria-label="画面切替">
       <button v-for="t in tabs" :key="t.id" @click="setTab(t.id)" :aria-current="tab===t.id ? 'page' : null">{{ t.label }}</button>
       <button class="theme" @click="cycleTheme" :title="'テーマ: ' + themeLabel" :aria-label="'テーマを切り替える（現在: ' + themeLabel + '）'"><ico :name="theme==='dark' ? 'moon' : theme==='light' ? 'sun' : 'auto'"></ico></button>
@@ -78,21 +77,33 @@
           <div class="result" v-if="guideResult[0]" :class="guideResult[0].ok ? 'ok' : 'bad'" role="status"><div>{{ guideResult[0].text }}</div><div class="tip" v-if="guideResult[0].tip">{{ guideResult[0].tip }}</div></div>
         </form>
         <aside class="hint">
-          <h4>PBX 側で必要なこと</h4>
-          <ul v-if="guide.pbx.type!=='asterisk'">
-            <li>SIP: internal プロファイルにこのマシンから届くこと（UDP 5060）。RTP のポート範囲（既定 16384〜32768）も通す</li>
-            <li>ESL: <code>autoload_configs/event_socket.conf.xml</code> の listen-ip と password。FusionPBX の既定は <code>ClueCon</code>、listen-ip は 127.0.0.1 なので別ホストからは SSH 経由にする</li>
-            <li>ログ: <code>/var/log/freeswitch/freeswitch.log</code> を読める権限（SSH ユーザか、このプロセス）</li>
-            <li>検証用の設定例: <code>deploy/freeswitch/README.md</code>、FusionPBX は <code>deploy/fusionpbx/README.md</code></li>
+          <h4>このステップで何をするか</h4>
+          <p>Semishigure は、この PC の上で SIP 電話機（発信側 1 台と応答側の内線）を演じて PBX に登録し、内線どうしの通話を大量に張ります。あわせて PBX の管理用ポートにつないで通話数や CPU を記録します。そのために PBX 側で次の 3 つが通っている必要があります。</p>
+          <template v-if="guide.pbx.type!=='asterisk'">
+            <ol>
+              <li><b>SIP と RTP がこの PC から届く。</b>PBX が内線からの登録と発信を受け付ける SIP ポート（FreeSWITCH では internal プロファイル、既定は UDP 5060）に到達できること。通話の音声（RTP）は PBX 側の 16384〜32768 番（既定）を使うので、途中のファイアウォールで塞がれていないこと。</li>
+              <li><b>管理用ポート（ESL）につながる。</b>監視は FreeSWITCH の Event Socket（ESL、既定はポート 8021、パスワードは <code>ClueCon</code>）を使います。設定ファイルは PBX 上の <code>autoload_configs/event_socket.conf.xml</code> です。listen-ip が 127.0.0.1（既定。FusionPBX も同じ）だと PBX の中からしかつなげないので、別の PC から使うときは「実行方法」を SSH にしてください。SSH 経由なら ESL のアドレスは 127.0.0.1 のままで構いません。</li>
+              <li><b>ログが読める。</b>通話の失敗や警告を拾うために <code>/var/log/freeswitch/freeswitch.log</code> を読みます。SSH で入るユーザ（この PC で PBX を直接動かしているならこのアプリ）に、そのファイルの読み取り権限が必要です。</li>
+            </ol>
+            <p>開発時の検証用 PBX の作り方は <code>deploy/freeswitch/README.md</code>（FusionPBX は <code>deploy/fusionpbx/README.md</code>）にあります。</p>
+          </template>
+          <template v-else>
+            <ol>
+              <li><b>SIP と RTP がこの PC から届く。</b>chan_pjsip のトランスポート（既定は UDP 5060）に到達できること。通話の音声（RTP）は <code>rtp.conf</code> の範囲（既定 10000〜20000）を使うので、途中のファイアウォールで塞がれていないこと。</li>
+              <li><b>管理用ポート（AMI）につながる。</b>監視は Asterisk Manager Interface（AMI、既定はポート 5038）を使います。<code>manager.conf</code> にこのアプリ用のユーザを作り、<code>read = system,call,command</code>、<code>write = command</code>、permit にこの PC のアドレス（SSH 経由なら 127.0.0.1）を入れてください。</li>
+              <li><b>ログが読める。</b><code>/var/log/asterisk/full</code> を読みます（<code>logger.conf</code> で full を有効にしておきます）。SSH で入るユーザにそのファイルの読み取り権限が必要です。</li>
+            </ol>
+            <p>開発時の検証用 PBX の作り方は <code>deploy/asterisk/README.md</code> にあります。</p>
+          </template>
+          <h4 style="margin-top:12px">「保存して接続テスト」で確かめること</h4>
+          <p>プロファイルを保存したあと、実際に PBX につないで次を確かめます。すべて通れば次のステップに進めます。</p>
+          <ul>
+            <li>{{ guide.pbx.type==='asterisk' ? 'AMI' : 'ESL' }} にログインできる（アドレス、ポート、パスワードが正しい）</li>
+            <li>PBX の版、同時セッションの上限、いまの通話数が取れる</li>
+            <li>PBX プロセスの PID、CPU 使用率、スレッド数が取れる（「プロセス名」が正しい）</li>
+            <li>ログファイルの末尾が読める</li>
           </ul>
-          <ul v-else>
-            <li>SIP: chan_pjsip のトランスポート（UDP 5060）にこのマシンから届くこと。RTP の範囲は <code>rtp.conf</code></li>
-            <li>AMI: <code>manager.conf</code> にユーザを作り、<code>read = system,call,command</code>、<code>write = command</code>、permit にこのマシン（またはローカル）を入れる</li>
-            <li>ログ: <code>/var/log/asterisk/full</code>（<code>logger.conf</code> で full を有効に）</li>
-            <li>検証用の設定例: <code>deploy/asterisk/README.md</code></li>
-          </ul>
-          <h4 style="margin-top:12px">接続テストで確認すること</h4>
-          <ul><li>ESL / AMI にログインできる</li><li>バージョン、max-sessions、現在の channels</li><li>プロセスの pid / %CPU / スレッド数（ps）</li><li>ログの末尾が読める</li></ul>
+          <p>SIP の疎通（登録と発信）は内線を作った後の「5. 事前チェック」で確かめます。</p>
         </aside>
       </div>
 
@@ -555,12 +566,23 @@
       <div class="row" style="margin-top:8px">
         <label for="s-file" class="sr-only">編集するシナリオ</label>
         <select id="s-file" v-model="editor.file" @change="loadScenarioText" style="width:auto;min-width:200px;flex:1"><option v-for="s in scenarios" :key="s.file" :value="s.file">{{ s.file }}</option></select>
-        <label for="s-new" class="sr-only">新しいシナリオ名</label>
-        <input id="s-new" type="text" v-model="editor.newName" placeholder="新しいシナリオ名" style="width:200px">
-        <button @click="createScenario" :disabled="!editor.newName.trim() || busy==='scenario'">選択中をコピーして作成</button>
+        <button class="primary" @click="editor.creating = !editor.creating; editor.createMsg = ''" :aria-expanded="editor.creating || !scenarios.length" aria-controls="s-create">新規作成</button>
         <button class="danger outline" @click="deleteScenario" :disabled="!editor.file">削除</button>
       </div>
-      <p class="empty" v-if="!scenarios.length">{{ scenarioDir }} に YAML がありません。名前を入れて「作成」すると雛形から作れます。</p>
+      <div class="create" id="s-create" v-if="editor.creating || !scenarios.length">
+        <div class="grid2">
+          <div class="field"><label for="s-new">シナリオ名</label><input id="s-new" type="text" v-model="editor.newName" placeholder="例: office-8001" aria-describedby="s-new-help" @keydown.enter.prevent="createScenario"><div class="help" id="s-new-help">ファイル名になります（.yaml は自動で付きます）</div></div>
+          <div class="field"><span class="label">元にするもの</span>
+            <div class="radios" role="radiogroup" aria-label="元にするもの">
+              <label class="check"><input type="radio" v-model="editor.newFrom" value="template"> 雛形（各項目にコメントが付いた標準の構成）</label>
+              <label class="check"><input type="radio" v-model="editor.newFrom" value="copy" :disabled="!editor.file"> 選択中のシナリオ{{ editor.file ? '（' + editor.file + '）' : '' }}をコピー</label>
+            </div>
+          </div>
+        </div>
+        <div class="btns"><button class="primary" @click="createScenario" :disabled="!editor.newName.trim() || busy==='scenario'" :aria-busy="busy==='scenario'">作成して編集する</button><button type="button" class="quiet" @click="goGuideScenario">画面の案内に沿って作る（ガイド）</button><button type="button" class="quiet" v-if="scenarios.length" @click="editor.creating = false">閉じる</button></div>
+        <div class="msg bad" v-if="editor.createMsg" role="alert">{{ editor.createMsg }}</div>
+      </div>
+      <p class="empty" v-if="!scenarios.length">{{ scenarioDir }} にシナリオがまだありません。上の「新規作成」で雛形から作るか、ガイドに沿って作ってください。</p>
       <div class="editor" style="margin-top:12px" v-else>
         <div>
           <label for="s-yaml">YAML（保存時に検証します）</label>
