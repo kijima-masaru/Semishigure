@@ -50,8 +50,8 @@
           <div class="grid2">
             <div class="field"><label for="g-name">プロファイル名</label><input id="g-name" type="text" v-model="guide.pbx.name" required></div>
             <div class="field"><label for="g-type">PBX の種類</label><select id="g-type" v-model="guide.pbx.type" @change="guideTypeDefaults"><option value="freeswitch">FreeSWITCH</option><option value="fusionpbx">FusionPBX（FreeSWITCH）</option><option value="asterisk">Asterisk</option></select></div>
-            <div class="field"><label for="g-host">SIP アドレス（host）</label><input id="g-host" type="text" v-model="guide.pbx.host" placeholder="192.168.1.10" required aria-describedby="g-host-help"><div class="help" id="g-host-help">internal プロファイルが待ち受ける IP。FusionPBX は sofia status で確認</div></div>
-            <div class="field"><label for="g-port">SIP ポート</label><input id="g-port" type="number" inputmode="numeric" v-model.number="guide.pbx.sip_port"></div>
+            <div class="field"><label for="g-host">IPアドレス</label><input id="g-host" type="text" v-model="guide.pbx.host" placeholder="192.168.1.10" required aria-describedby="g-host-help"><div class="help" id="g-host-help">internal プロファイルが待ち受ける IP。FusionPBX は sofia status で確認</div></div>
+            <div class="field"><label for="g-port">ポート番号</label><input id="g-port" type="number" inputmode="numeric" v-model.number="guide.pbx.sip_port"></div>
             <div class="field"><label for="g-domain">SIP ドメイン</label><input id="g-domain" type="text" v-model="guide.pbx.domain" placeholder="pbx.example.test" aria-describedby="g-domain-help"><div class="help" id="g-domain-help">REGISTER / INVITE の To に使うドメイン。FusionPBX はテナントのドメイン名</div></div>
             <div class="field"><label for="g-env">環境</label><select id="g-env" v-model="guide.pbx.environment"><option value="dev">dev</option><option value="staging">staging</option><option value="prod">prod（開始前の確認と上限 20）</option></select></div>
             <div class="field"><label for="g-exec">PBX ホストへの接続</label><select id="g-exec" v-model="guide.pbx.executor"><option value="local">このマシンで PBX が動いている（local）</option><option value="ssh">別のホスト（SSH、鍵認証）</option></select></div>
@@ -80,7 +80,6 @@
         </form>
         <aside class="hint">
           <h4>このステップで何をするか</h4>
-          <p>Semishigure は、この PC の上で SIP 電話機を演じて PBX に登録し、内線どうしの通話を大量に張ります。<br>PBX 側で通しておくものは 3 つです。項目を開くと詳しい説明が出ます。</p>
           <div class="acc" v-if="guide.pbx.type!=='asterisk'">
             <details class="fold"><summary>1. SIP と RTP がこの PC から届く</summary><div class="fold-body">
               <p>PBX の SIP ポートに、この PC から到達できること。<br>FreeSWITCH では internal プロファイル。既定は UDP 5060。</p>
